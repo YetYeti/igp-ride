@@ -4,6 +4,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from igp_ride.cli import cmd_list, cmd_show, cmd_stats, cmd_update, main
 from igp_ride.config import AppConfig, ConfigurationError
 from igp_ride.models import Activity, PeriodStats, SyncSummary
@@ -98,6 +100,15 @@ class FakeUpdateService:
 
 
 class TestMainOutput:
+    def test_main_prints_version(self, capsys):
+        with patch("igp_ride.cli._get_cli_version", return_value="0.1.1"):
+            with pytest.raises(SystemExit) as exc:
+                main(["--version"])
+
+        assert exc.value.code == 0
+        captured = capsys.readouterr()
+        assert captured.out.strip() == "igp-ride 0.1.1"
+
     def test_main_formats_configuration_error(self, capsys):
         with patch(
             "igp_ride.cli.cmd_update",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 from datetime import datetime
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Final, Sequence, TextIO
 
@@ -28,10 +29,22 @@ from igp_ride.utils import setup_logging
 _title_printed = False
 
 
+def _get_cli_version() -> str:
+    try:
+        return version("igp-ride")
+    except PackageNotFoundError:
+        return "unknown"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="igp-ride",
         description="Sync IGPSPORT cycling activities to local SQLite",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {_get_cli_version()}",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
