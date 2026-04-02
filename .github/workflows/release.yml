@@ -1,0 +1,66 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Run ruff check
+        run: uv run ruff check src tests
+
+      - name: Run tests
+        run: uv run pytest
+
+      - name: Run basedpyright
+        run: uv run basedpyright --level error
+
+      - name: Verify tag matches project version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PROJECT_VERSION="$(python - <<'PY'
+          import pathlib
+          import re
+
+          content = pathlib.Path("pyproject.toml").read_text(encoding="utf-8")
+          match = re.search(r'^version = "([^"]+)"$', content, re.MULTILINE)
+          if match is None:
+              raise SystemExit("Unable to find project version in pyproject.toml")
+          print(match.group(1))
+          PY
+          )"
+          if [ "$TAG_VERSION" != "$PROJECT_VERSION" ]; then
+            echo "Tag version v$TAG_VERSION does not match pyproject version $PROJECT_VERSION"
+            exit 1
+          fi
+
+      - name: Build artifacts
+        run: uv build
+
+      - name: Publish GitHub Release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/igp_ride-*.tar.gz
+            dist/igp_ride-*.whl

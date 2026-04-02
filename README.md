@@ -1,0 +1,133 @@
+# igp-ride
+
+`igp-ride` 是一个面向 IGPSPORT 平台的轻量命令行工具，用于把骑行活动同步到本地 SQLite，并下载对应的 FIT 文件，方便后续查询、统计和备份。
+
+## 功能概览
+
+- 登录 IGPSPORT 账号并缓存本地会话
+- 增量同步活动到本地 SQLite
+- 全量拉取历史活动
+- 下载或修复缺失、损坏的 FIT 文件
+- 查看活动列表与活动详情
+- 生成按月或按年的骑行统计
+- 以守护进程方式定时同步
+
+## 安装
+
+```bash
+uv tool install "git+https://github.com/YetYeti/igp-ride"
+igp-ride --help
+```
+
+## 快速开始
+
+### 1. 登录
+
+交互式登录：
+
+```bash
+igp-ride login
+```
+
+如果你在无交互环境中运行，可以通过环境变量传入凭据：
+
+```bash
+IGP_USERNAME=<你的用户名> IGP_PASSWORD=<你的密码> igp-ride login
+```
+
+说明：
+
+- 该工具没有 `--password` 参数
+- 默认会把密码和会话写入系统 keyring
+- 登录后会在本地保存用户名和会话时间戳
+
+### 2. 同步活动
+
+默认增量同步：
+
+```bash
+igp-ride update
+```
+
+全量同步历史活动：
+
+```bash
+igp-ride update --all
+```
+
+### 3. 查看活动
+
+查看最近一次活动：
+
+```bash
+igp-ride show last
+```
+
+查看指定活动：
+
+```bash
+igp-ride show <ride_id>
+```
+
+### 4. 查看统计
+
+按月统计：
+
+```bash
+igp-ride stats
+```
+
+按年统计：
+
+```bash
+igp-ride stats --by year
+```
+
+## 守护进程模式
+
+启动后台定时同步：
+
+```bash
+igp-ride daemon start --interval 30m
+```
+
+每次发现新活动后执行 hook：
+
+```bash
+igp-ride daemon start --interval 1h --hook "echo new rides"
+```
+
+查看守护进程状态：
+
+```bash
+igp-ride daemon status
+```
+
+停止守护进程：
+
+```bash
+igp-ride daemon stop
+```
+
+## 数据存储位置
+
+工具默认使用 XDG 目录：
+
+- 配置目录：`~/.config/igp-ride`
+- 会话文件：`~/.config/igp-ride/session.json`
+- 数据目录：`~/.local/share/igp-ride`
+- SQLite 数据库：`~/.local/share/igp-ride/rides.db`
+- FIT 文件目录：`~/.local/share/igp-ride/fit`
+- 日志目录：`~/.local/share/igp-ride/logs`
+
+## 认证与安全
+
+- 默认站点为 `https://my.igpsport.com`
+- 用户名和密码通过系统 keyring 保存
+- `session.json` 不直接保存密码
+- `logout` 只清理本地凭据和会话
+- `reset` 会删除数据库、FIT 文件、凭据和会话，请谨慎使用
+
+## License
+
+MIT
