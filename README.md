@@ -15,7 +15,7 @@
 ## 安装
 
 ```bash
-uv tool install "git+https://github.com/YetYeti/igp-ride"
+uv tool install git+https://github.com/YetYeti/igp-ride@v0.1.1
 igp-ride --help
 ```
 

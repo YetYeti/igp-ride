@@ -37,6 +37,19 @@ where = ["src"]
 include = ["src"]
 failOnWarnings = false
 
+[tool.bumpversion]
+current_version = "0.1.1"
+commit = false
+tag = false
+
+[[tool.bumpversion.files]]
+filename = "pyproject.toml"
+
+[[tool.bumpversion.files]]
+filename = "README.md"
+search = "uv tool install git+https://github.com/YetYeti/igp-ride@v{current_version}"
+replace = "uv tool install git+https://github.com/YetYeti/igp-ride@v{new_version}"
+
 [build-system]
 requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
@@ -44,6 +57,7 @@ build-backend = "setuptools.build_meta"
 [dependency-groups]
 dev = [
     "basedpyright>=1.37.1",
+    "bump-my-version>=1.2.4",
     "pytest>=9.0.2",
     "ruff>=0.14.14",
 ]
