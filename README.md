@@ -15,9 +15,16 @@
 ## 安装
 
 ```bash
-uv tool install git+https://github.com/YetYeti/igp-ride@v0.1.1
+# main 分支
+uv tool install git+https://github.com/YetYeti/igp-ride@main
+
+# 使用 dev 分支最新代码
+uv tool install git+https://github.com/YetYeti/igp-ride@dev
+
 igp-ride --help
 ```
+
+更新或在稳定版与 `dev` 分支之间切换时，给安装命令增加 `--upgrade` 即可。
 
 ## 快速开始
 

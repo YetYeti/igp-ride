@@ -1,6 +1,6 @@
 [project]
 name = "igp-ride"
-version = "0.1.1"
+version = "0.1.2"
 description = "Minimal CLI for syncing IGPSPORT ride data"
 readme = "README.md"
 license = "MIT"
@@ -38,17 +38,12 @@ include = ["src"]
 failOnWarnings = false
 
 [tool.bumpversion]
-current_version = "0.1.1"
+current_version = "0.1.2"
 commit = false
 tag = false
 
 [[tool.bumpversion.files]]
 filename = "pyproject.toml"
-
-[[tool.bumpversion.files]]
-filename = "README.md"
-search = "uv tool install git+https://github.com/YetYeti/igp-ride@v{current_version}"
-replace = "uv tool install git+https://github.com/YetYeti/igp-ride@v{new_version}"
 
 [build-system]
 requires = ["setuptools>=42", "wheel"]
