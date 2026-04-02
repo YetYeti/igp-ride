@@ -59,6 +59,7 @@ igp-ride --help
 - FIT 文件目录：`~/.local/share/igp-ride/fit`
 - 普通日志：`~/.local/share/igp-ride/logs/igp-ride.log`
 - 守护进程日志：`~/.local/share/igp-ride/logs/daemon.log`
+- macOS LaunchAgent：`~/Library/LaunchAgents/com.yetyeti.igp-ride.daemon.plist`
 
 账号密码和会话令牌会写入系统 keyring。`session.json` 只保存用户名和保存时间。
 
@@ -167,8 +168,9 @@ igp-ride daemon run --once
 
 使用规则：
 
-- 后台常驻轮询用 `daemon start`
-- 只想前台跑一轮并返回结构化结果，用 `daemon run --once`
+- 在 macOS 下，`daemon start` / `daemon stop` / `daemon status` 负责管理 `LaunchAgent`
+- `daemon start` 会安装并加载 `LaunchAgent`，加载后先执行一轮同步，之后按 `--interval` 周期运行；重新登录后会自动恢复
+- `daemon run --once` 是 `LaunchAgent` 实际调用的一次同步入口，也可用于前台手动跑一轮并返回结构化结果
 - 用户要检查运行状态、最近一次同步结果、日志位置时，用 `daemon status`
 - `--interval` 支持 `30m`、`1h`、`45` 这类写法；纯数字默认按分钟解释
 - 只有检测到新活动时，`--hook` 才会触发

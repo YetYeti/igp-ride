@@ -85,6 +85,8 @@ igp-ride stats --by year
 
 ## 守护进程模式
 
+在 macOS 下，`daemon start` 会安装并加载 `LaunchAgent`。加载后会先执行一轮同步，之后按 `--interval` 周期运行；重启并重新登录后会自动恢复。
+
 启动后台定时同步：
 
 ```bash
@@ -109,6 +111,12 @@ igp-ride daemon status
 igp-ride daemon stop
 ```
 
+手动前台执行一轮守护进程同步：
+
+```bash
+igp-ride daemon run --once
+```
+
 ## 数据存储位置
 
 工具默认使用 XDG 目录：
@@ -119,6 +127,7 @@ igp-ride daemon stop
 - SQLite 数据库：`~/.local/share/igp-ride/rides.db`
 - FIT 文件目录：`~/.local/share/igp-ride/fit`
 - 日志目录：`~/.local/share/igp-ride/logs`
+- LaunchAgent：`~/Library/LaunchAgents/com.yetyeti.igp-ride.daemon.plist`
 
 ## 认证与安全
 

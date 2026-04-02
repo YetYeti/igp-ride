@@ -85,7 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     daemon_parser = subparsers.add_parser(
         "daemon",
-        help="Run update continuously in the background",
+        help="Manage background sync scheduling",
     )
     daemon_subparsers = daemon_parser.add_subparsers(
         dest="daemon_command",
@@ -94,7 +94,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     daemon_start_parser = daemon_subparsers.add_parser(
         "start",
-        help="Start the background update daemon",
+        help="Install and start the background sync LaunchAgent",
     )
     daemon_start_parser.add_argument(
         "--interval",
@@ -108,7 +108,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     daemon_run_parser = daemon_subparsers.add_parser(
         "run",
-        help="Run the update daemon in the foreground",
+        help="Run a sync cycle in the foreground",
     )
     daemon_run_parser.add_argument(
         "--interval",
@@ -125,8 +125,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run a single update cycle and exit.",
     )
 
-    daemon_subparsers.add_parser("stop", help="Stop the background update daemon")
-    daemon_subparsers.add_parser("status", help="Show daemon status")
+    daemon_subparsers.add_parser("stop", help="Stop and unload the background sync")
+    daemon_subparsers.add_parser("status", help="Show background sync status")
 
     list_parser = subparsers.add_parser("list", help="List local activities")
     list_parser.add_argument("--limit", type=int, help="Show at most N activities")
@@ -354,16 +354,17 @@ def cmd_daemon(args: argparse.Namespace) -> int:
 def cmd_daemon_start(interval: str, hook_command: str | None) -> int:
     config = AppConfig.load(require_credentials=True)
     interval_seconds = parse_interval_spec(interval)
-    pid, paths = start_daemon_process(
+    paths = start_daemon_process(
         config,
         interval_spec=interval,
         hook_command=hook_command,
     )
     _print_title("Daemon Start")
     _print_result("success")
-    _print_field("PID", pid)
+    _print_field("Backend", "LaunchAgent")
     _print_field("Interval", _format_interval_display(interval_seconds))
     _print_field("Hook", hook_command or "<none>")
+    _print_field("Agent", format_path(paths.launch_agent_file))
     _print_field("Log", format_path(paths.log_file))
     _print_next("igp-ride daemon status")
     return 0
@@ -421,10 +422,13 @@ def cmd_daemon_status() -> int:
     config = AppConfig.load()
     state = get_daemon_status(config)
     running = _as_bool(state.get("running"))
+    active = _as_bool(state.get("active"))
     pid = _as_int_state(state.get("pid"))
     interval_seconds = _as_int_state(state.get("interval_seconds"))
     hook_command = _as_str_state(state.get("hook_command"))
     log_file = _as_str_state(state.get("log_file"))
+    backend = _as_str_state(state.get("backend"))
+    launch_agent_file = _as_str_state(state.get("launch_agent_file"))
     last_status = _as_str_state(state.get("last_status"))
     last_run_at = _as_str_state(state.get("last_run_at"))
     last_error = _as_str_state(state.get("last_error"))
@@ -432,6 +436,11 @@ def cmd_daemon_status() -> int:
 
     _print_title("Daemon Status")
     _print_field("Running", running)
+    if backend:
+        _print_field("Backend", backend)
+    if launch_agent_file:
+        _print_field("Agent", format_path(Path(launch_agent_file)))
+    _print_field("Active", active)
     if pid > 0:
         _print_field("PID", pid)
     if interval_seconds > 0:

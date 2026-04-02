@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import plistlib
 import signal
 import subprocess
 import sys
@@ -25,7 +26,7 @@ logger = get_logger(__name__)
 DEFAULT_INTERVAL = "30m"
 PID_FILE_NAME: Final[str] = "daemon.pid"
 STATE_FILE_NAME: Final[str] = "daemon_state.json"
-STARTUP_POLL_SECONDS = 0.2
+LAUNCH_AGENT_LABEL: Final[str] = "com.yetyeti.igp-ride.daemon"
 STOP_WAIT_SECONDS = 5.0
 
 
@@ -34,6 +35,8 @@ class DaemonPaths:
     pid_file: Path
     state_file: Path
     log_file: Path
+    launch_agent_file: Path
+    launch_agent_label: str = LAUNCH_AGENT_LABEL
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +83,10 @@ def get_daemon_paths(config: AppConfig) -> DaemonPaths:
         pid_file=config.session_file.parent / PID_FILE_NAME,
         state_file=config.session_file.parent / STATE_FILE_NAME,
         log_file=LOG_DIR / "daemon.log",
+        launch_agent_file=Path.home()
+        / "Library"
+        / "LaunchAgents"
+        / f"{LAUNCH_AGENT_LABEL}.plist",
     )
 
 
@@ -120,92 +127,92 @@ def start_daemon_process(
     *,
     interval_spec: str,
     hook_command: str | None = None,
-) -> tuple[int, DaemonPaths]:
+) -> DaemonPaths:
     paths = get_daemon_paths(config)
+    if _launch_agent_loaded(paths):
+        raise DaemonError("Daemon is already loaded via LaunchAgent.")
     if daemon_is_running(paths):
         pid = read_daemon_pid(paths.pid_file)
-        raise DaemonError(f"Daemon is already running (pid {pid}).")
-
-    _cleanup_stale_files(paths)
-    paths.log_file.parent.mkdir(parents=True, exist_ok=True)
-
-    command = [
-        sys.executable,
-        "-m",
-        "igp_ride.cli",
-        "daemon",
-        "run",
-        "--interval",
-        interval_spec,
-    ]
-    if hook_command:
-        command.extend(["--hook", hook_command])
-
-    env = os.environ.copy()
-    env["PYTHONUNBUFFERED"] = "1"
-    log_handle = paths.log_file.open("a", encoding="utf-8")
-    try:
-        process = subprocess.Popen(
-            command,
-            stdin=subprocess.DEVNULL,
-            stdout=log_handle,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-            env=env,
+        raise DaemonError(
+            "Legacy daemon process is still running. "
+            f"Stop it before switching to LaunchAgent mode (pid {pid})."
         )
-    finally:
-        log_handle.close()
 
+    _remove_if_exists(paths.pid_file)
+    paths.log_file.parent.mkdir(parents=True, exist_ok=True)
+    paths.launch_agent_file.parent.mkdir(parents=True, exist_ok=True)
+
+    interval_seconds = parse_interval_spec(interval_spec)
+    plist_payload = _build_launch_agent_plist(
+        paths,
+        interval_spec=interval_spec,
+        interval_seconds=interval_seconds,
+        hook_command=hook_command,
+    )
+    with paths.launch_agent_file.open("wb") as handle:
+        plistlib.dump(plist_payload, handle, sort_keys=True)
+    try:
+        _launchctl("bootstrap", _launchctl_domain(), str(paths.launch_agent_file))
+    except Exception:
+        _remove_if_exists(paths.launch_agent_file)
+        raise
     state: dict[str, object] = {
-        "pid": process.pid,
         "running": True,
         "started_at": _utc_now().isoformat(),
-        "interval_seconds": parse_interval_spec(interval_spec),
+        "backend": "launch-agent",
+        "interval_seconds": interval_seconds,
         "hook_command": hook_command or "",
         "log_file": str(paths.log_file),
-        "last_status": "starting",
+        "launch_agent_file": str(paths.launch_agent_file),
+        "launch_agent_label": paths.launch_agent_label,
+        "last_status": "scheduled",
     }
-    _write_pid_file(paths.pid_file, process.pid)
     save_daemon_state(paths.state_file, state)
-
-    time.sleep(STARTUP_POLL_SECONDS)
-    if process.poll() is not None:
-        _cleanup_stale_files(paths)
-        raise DaemonError("Daemon process exited immediately. Check daemon.log.")
-    return process.pid, paths
+    return paths
 
 
 def stop_daemon_process(config: AppConfig) -> tuple[bool, DaemonPaths]:
     paths = get_daemon_paths(config)
-    pid = read_daemon_pid(paths.pid_file)
-    if pid is None:
-        _cleanup_stale_files(paths)
-        return False, paths
-    if not _is_process_running(pid):
+    launch_agent_loaded = _launch_agent_loaded(paths)
+    if not launch_agent_loaded and not paths.launch_agent_file.exists():
         _cleanup_stale_files(paths)
         return False, paths
 
-    os.kill(pid, signal.SIGTERM)
-    deadline = time.monotonic() + STOP_WAIT_SECONDS
-    while time.monotonic() < deadline:
-        if not _is_process_running(pid):
-            _cleanup_stale_files(paths)
-            return True, paths
-        time.sleep(0.1)
+    if launch_agent_loaded:
+        _launchctl("bootout", _launchctl_domain(), str(paths.launch_agent_file))
+        _wait_for_launch_agent_unload(paths)
 
-    os.kill(pid, signal.SIGKILL)
+    _remove_if_exists(paths.launch_agent_file)
     _cleanup_stale_files(paths)
+    state = load_daemon_state(paths.state_file)
+    state.update(
+        {
+            "running": False,
+            "backend": "launch-agent",
+            "launch_agent_file": str(paths.launch_agent_file),
+            "launch_agent_label": paths.launch_agent_label,
+            "stopped_at": _utc_now().isoformat(),
+        }
+    )
+    save_daemon_state(paths.state_file, state)
     return True, paths
 
 
 def get_daemon_status(config: AppConfig) -> dict[str, object]:
     paths = get_daemon_paths(config)
     state = load_daemon_state(paths.state_file)
+    loaded = _launch_agent_loaded(paths)
     pid = read_daemon_pid(paths.pid_file)
-    running = pid is not None and _is_process_running(pid)
+    active = pid is not None and _is_process_running(pid)
     if pid is not None:
         state["pid"] = pid
-    state["running"] = running
+    else:
+        state.pop("pid", None)
+    state["running"] = loaded
+    state["active"] = active
+    state["backend"] = "launch-agent"
+    state["launch_agent_file"] = str(paths.launch_agent_file)
+    state["launch_agent_label"] = paths.launch_agent_label
     if "log_file" not in state:
         state["log_file"] = str(paths.log_file)
     return state
@@ -249,9 +256,16 @@ def run_daemon_loop(
             "pid": os.getpid(),
             "running": True,
             "started_at": state.get("started_at", started_at.isoformat()),
+            "backend": state.get("backend", "launch-agent"),
             "interval_seconds": interval_seconds,
             "hook_command": hook_command or "",
             "log_file": str(paths.log_file),
+            "launch_agent_file": state.get(
+                "launch_agent_file", str(paths.launch_agent_file)
+            ),
+            "launch_agent_label": state.get(
+                "launch_agent_label", paths.launch_agent_label
+            ),
             "last_status": "running",
         }
     )
@@ -413,6 +427,79 @@ def _is_process_running(pid: int) -> bool:
     except OSError:
         return False
     return True
+
+
+def _build_launch_agent_plist(
+    paths: DaemonPaths,
+    *,
+    interval_spec: str,
+    interval_seconds: int,
+    hook_command: str | None,
+) -> dict[str, object]:
+    program_arguments = [
+        sys.executable,
+        "-m",
+        "igp_ride.cli",
+        "daemon",
+        "run",
+        "--once",
+        "--interval",
+        interval_spec,
+    ]
+    if hook_command:
+        program_arguments.extend(["--hook", hook_command])
+    payload: dict[str, object] = {
+        "Label": paths.launch_agent_label,
+        "ProgramArguments": program_arguments,
+        "RunAtLoad": True,
+        "StartInterval": interval_seconds,
+        "StandardOutPath": str(paths.log_file),
+        "StandardErrorPath": str(paths.log_file),
+    }
+    environment = _launch_agent_environment()
+    if environment:
+        payload["EnvironmentVariables"] = environment
+    return payload
+
+
+def _launch_agent_environment() -> dict[str, str]:
+    environment = {"PYTHONUNBUFFERED": "1"}
+    for name in ("PATH", "XDG_CONFIG_HOME", "XDG_DATA_HOME"):
+        value = os.getenv(name)
+        if value:
+            environment[name] = value
+    return environment
+
+
+def _launch_agent_loaded(paths: DaemonPaths) -> bool:
+    result = subprocess.run(
+        [
+            "launchctl",
+            "print",
+            f"{_launchctl_domain()}/{paths.launch_agent_label}",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def _launchctl_domain() -> str:
+    return f"gui/{os.getuid()}"
+
+
+def _launchctl(*args: str) -> None:
+    subprocess.run(["launchctl", *args], check=True)
+
+
+def _wait_for_launch_agent_unload(paths: DaemonPaths) -> None:
+    deadline = time.monotonic() + STOP_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        if not _launch_agent_loaded(paths):
+            return
+        time.sleep(0.1)
+    raise DaemonError("LaunchAgent did not unload in time.")
 
 
 def _utc_now() -> datetime:
