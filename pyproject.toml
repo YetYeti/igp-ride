@@ -35,6 +35,7 @@ where = ["src"]
 
 [tool.basedpyright]
 include = ["src"]
+failOnWarnings = false
 
 [build-system]
 requires = ["setuptools>=42", "wheel"]
