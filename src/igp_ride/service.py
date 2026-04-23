@@ -15,7 +15,7 @@ from igp_ride.config import (
     save_credentials,
 )
 
-from igp_ride.database import ActivityDatabase
+from igp_ride.database import ActivityDatabase, ActivitySortKey
 from igp_ride.models import Activity, PeriodStats, SyncSummary
 from igp_ride.parser import FitParseError, normalize_session_data, parse_fit_file
 from igp_ride.utils import get_logger
@@ -294,9 +294,19 @@ class RideSyncService:
         return all_items, total, fetched_pages
 
     def list_activities(
-        self, *, limit: int | None = None, since: date | None = None
+        self,
+        *,
+        limit: int | None = None,
+        since: date | None = None,
+        sort_by: ActivitySortKey = "date",
+        descending: bool = True,
     ) -> list[Activity]:
-        return self.db.list_activities(limit=limit, since=since)
+        return self.db.list_activities(
+            limit=limit,
+            since=since,
+            sort_by=sort_by,
+            descending=descending,
+        )
 
     def get_stats(
         self,

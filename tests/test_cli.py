@@ -185,6 +185,13 @@ class TestUpdateOutput:
 
 
 class TestListOutput:
+    def test_main_passes_list_sort_options(self):
+        with patch("igp_ride.cli.cmd_list", return_value=0) as cmd_list_mock:
+            exit_code = main(["list", "--sort", "distance", "--asc", "--limit", "5"])
+
+        assert exit_code == 0
+        cmd_list_mock.assert_called_once_with(5, False, "distance", descending=False)
+
     def test_empty_list_uses_count_and_tip(self, tmp_path: Path, capsys):
         config = _make_config(tmp_path)
         service = MagicMock()
@@ -247,13 +254,18 @@ class TestListOutput:
             patch("igp_ride.cli.AppConfig.load", return_value=config),
             patch("igp_ride.cli.RideSyncService", return_value=service),
         ):
-            exit_code = cmd_list(limit=20, do_update=False)
+            exit_code = cmd_list(limit=20, do_update=False, sort_by="distance")
 
         captured = capsys.readouterr()
         assert exit_code == 0
         assert "Limit: 20" in captured.out
         assert "Summary: shown=" not in captured.out
         assert "Count:" not in captured.out
+        service.list_activities.assert_called_once_with(
+            limit=20,
+            sort_by="distance",
+            descending=True,
+        )
 
     def test_list_aligns_elevation_column_for_thousands(self, tmp_path: Path, capsys):
         config = _make_config(tmp_path)

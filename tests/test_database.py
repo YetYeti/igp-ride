@@ -90,6 +90,33 @@ class TestActivityDatabase:
         assert activities[0].ride_id == 1
         db.close()
 
+    def test_list_activities_can_sort_by_distance_ascending(self, tmp_path: Path):
+        db = ActivityDatabase(tmp_path / "test.db")
+        db.upsert(_make_activity(ride_id=1, total_distance=50000))
+        db.upsert(_make_activity(ride_id=2, total_distance=32000))
+        db.upsert(_make_activity(ride_id=3, total_distance=78000))
+        activities = db.list_activities(sort_by="distance", descending=False)
+        assert [activity.ride_id for activity in activities] == [2, 1, 3]
+        db.close()
+
+    def test_list_activities_can_sort_by_power_descending(self, tmp_path: Path):
+        db = ActivityDatabase(tmp_path / "test.db")
+        db.upsert(_make_activity(ride_id=1, avg_power=180))
+        db.upsert(_make_activity(ride_id=2, avg_power=260))
+        db.upsert(_make_activity(ride_id=3, avg_power=150))
+        activities = db.list_activities(sort_by="power", descending=True)
+        assert [activity.ride_id for activity in activities] == [2, 1, 3]
+        db.close()
+
+    def test_list_activities_keeps_missing_power_last(self, tmp_path: Path):
+        db = ActivityDatabase(tmp_path / "test.db")
+        db.upsert(_make_activity(ride_id=1, avg_power=0))
+        db.upsert(_make_activity(ride_id=2, avg_power=220))
+        db.upsert(_make_activity(ride_id=3, avg_power=150))
+        activities = db.list_activities(sort_by="power", descending=False)
+        assert [activity.ride_id for activity in activities] == [3, 2, 1]
+        db.close()
+
     def test_get_activities_with_missing_fit(self, tmp_path: Path):
         db = ActivityDatabase(tmp_path / "test.db")
         db.upsert(_make_activity(ride_id=1, fit_file_status="downloaded"))

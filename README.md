@@ -73,6 +73,14 @@ igp-ride update --all
 
 ### 3. 查看活动
 
+查看活动列表：
+
+```bash
+igp-ride list
+igp-ride list --sort distance --desc --limit 10
+igp-ride list --sort power --asc --limit 10
+```
+
 查看最近一次活动：
 
 ```bash

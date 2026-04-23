@@ -145,6 +145,8 @@ igp-ride update --progress plain
 ```bash
 igp-ride list
 igp-ride list --limit 20
+igp-ride list --sort distance --desc
+igp-ride list --sort power --asc --limit 10
 igp-ride list --update
 
 igp-ride show last
@@ -157,6 +159,10 @@ igp-ride show last --update
 - 用户只想看本地已有数据，用 `list` / `show`
 - 用户强调“先同步最新再看”，用 `--update` 或先执行 `igp-ride update`
 - `list --update` 和 `show --update` 都要求本地已有可用登录凭据
+- `list` 支持 `--sort date|distance|time|speed|elev|power`
+- `list` 支持 `--asc` 和 `--desc`；默认等价于 `--sort date --desc`
+- `--limit` 作用在排序后的结果上
+- `power` 排序时，没有功率数据的活动会排在最后
 - “最新一条活动”优先使用 `igp-ride show last`
 - 需要可浏览的总览时优先 `list`，需要完整指标时优先 `show`
 

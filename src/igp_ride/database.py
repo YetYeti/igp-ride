@@ -3,12 +3,16 @@ from __future__ import annotations
 import sqlite3
 from datetime import date, datetime
 from pathlib import Path
+from typing import Literal
 
 from igp_ride.models import Activity, PeriodStats
 from igp_ride.utils import ensure_dir, get_logger
 
 
 logger = get_logger(__name__)
+
+
+ActivitySortKey = Literal["date", "distance", "time", "speed", "elev", "power"]
 
 
 class DatabaseError(Exception):
@@ -48,20 +52,48 @@ class ActivityDatabase:
         return {int(row["ride_id"]) for row in cursor.fetchall()}
 
     def list_activities(
-        self, *, limit: int | None = None, since: date | None = None
+        self,
+        *,
+        limit: int | None = None,
+        since: date | None = None,
+        sort_by: ActivitySortKey = "date",
+        descending: bool = True,
     ) -> list[Activity]:
         query = "SELECT * FROM activities"
         params: list[object] = []
         if since is not None:
             query += " WHERE date(start_time) >= ?"
             params.append(since.isoformat())
-        query += " ORDER BY start_time DESC, ride_id DESC"
+        query += f" ORDER BY {self._build_activity_sort_clause(sort_by, descending)}"
         if limit is not None:
             query += " LIMIT ?"
             params.append(limit)
         cursor = self._get_connection().cursor()
         cursor.execute(query, tuple(params))
         return [self._row_to_activity(row) for row in cursor.fetchall()]
+
+    def _build_activity_sort_clause(
+        self, sort_by: ActivitySortKey, descending: bool
+    ) -> str:
+        direction = "DESC" if descending else "ASC"
+        ride_id_direction = "DESC" if descending else "ASC"
+
+        if sort_by == "date":
+            return f"start_time {direction}, ride_id {ride_id_direction}"
+        if sort_by == "distance":
+            return f"total_distance {direction}, start_time DESC, ride_id DESC"
+        if sort_by == "time":
+            return f"total_moving_time {direction}, start_time DESC, ride_id DESC"
+        if sort_by == "speed":
+            return f"avg_speed {direction}, start_time DESC, ride_id DESC"
+        if sort_by == "elev":
+            return f"total_ascent {direction}, start_time DESC, ride_id DESC"
+        if sort_by == "power":
+            return (
+                f"CASE WHEN avg_power <= 0 THEN 1 ELSE 0 END ASC, "
+                f"avg_power {direction}, start_time DESC, ride_id DESC"
+            )
+        raise DatabaseError(f"Unsupported activity sort key: {sort_by}")
 
     def get_activities_with_missing_fit(self) -> list[Activity]:
         cursor = self._get_connection().cursor()

@@ -21,7 +21,7 @@ from igp_ride.daemon import (
     start_daemon_process,
     stop_daemon_process,
 )
-from igp_ride.database import DatabaseError
+from igp_ride.database import ActivitySortKey, DatabaseError
 from igp_ride.models import Activity, PeriodStats, SyncSummary
 from igp_ride.service import ResetResult, RideSyncService, SyncProgress
 from igp_ride.utils import setup_logging
@@ -132,6 +132,23 @@ def build_parser() -> argparse.ArgumentParser:
     list_parser = subparsers.add_parser("list", help="List local activities")
     list_parser.add_argument("--limit", type=int, help="Show at most N activities")
     list_parser.add_argument(
+        "--sort",
+        choices=["date", "distance", "time", "speed", "elev", "power"],
+        default="date",
+        help="Sort by date, distance, time, speed, elevation, or power",
+    )
+    list_direction = list_parser.add_mutually_exclusive_group()
+    list_direction.add_argument(
+        "--asc",
+        action="store_true",
+        help="Sort in ascending order",
+    )
+    list_direction.add_argument(
+        "--desc",
+        action="store_true",
+        help="Sort in descending order",
+    )
+    list_parser.add_argument(
         "--update",
         action="store_true",
         help="Update remote activities before listing",
@@ -183,7 +200,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "daemon":
             return cmd_daemon(args)
         if args.command == "list":
-            return cmd_list(args.limit, args.update)
+            return cmd_list(
+                args.limit,
+                args.update,
+                args.sort,
+                descending=not args.asc,
+            )
         if args.command == "show":
             return cmd_show(args.activity_id, args.update)
         if args.command == "stats":
@@ -465,13 +487,23 @@ def cmd_daemon_status() -> int:
     return 0
 
 
-def cmd_list(limit: int | None, do_update: bool) -> int:
+def cmd_list(
+    limit: int | None,
+    do_update: bool,
+    sort_by: ActivitySortKey = "date",
+    *,
+    descending: bool = True,
+) -> int:
     config = AppConfig.load(require_credentials=do_update)
     service = RideSyncService(config)
     try:
         if do_update:
             service.sync()
-        activities = service.list_activities(limit=limit)
+        activities = service.list_activities(
+            limit=limit,
+            sort_by=sort_by,
+            descending=descending,
+        )
     finally:
         service.close()
 
