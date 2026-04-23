@@ -122,6 +122,40 @@ class TestMainOutput:
         assert "Error: Missing credentials." in captured.err
         assert "Tip: Run igp-ride login first" in captured.err
 
+    def test_main_blocks_daemon_start_when_management_is_unsupported(self, capsys):
+        with patch("igp_ride.cli.is_daemon_management_supported", return_value=False):
+            exit_code = main(["daemon", "start"])
+
+        captured = capsys.readouterr()
+        assert exit_code == 9
+        assert "== Daemon Start ==" in captured.err
+        assert "only supported on macOS" in captured.err
+
+    def test_main_allows_daemon_run_once_when_management_is_unsupported(self, tmp_path: Path, capsys):
+        config = _make_config(tmp_path)
+        state = {
+            "last_status": "ok",
+            "last_hook_triggered": False,
+            "last_remote_fetched": 1,
+            "last_new_activities": 0,
+            "last_updated_activities": 0,
+            "last_activities_skipped": 1,
+            "last_fit_files_failed": 0,
+        }
+
+        with (
+            patch("igp_ride.cli.AppConfig.load", return_value=config),
+            patch("igp_ride.cli.run_daemon_loop", return_value=0),
+            patch("igp_ride.cli.get_daemon_status", return_value=state),
+            patch("igp_ride.cli.is_daemon_management_supported", return_value=False),
+        ):
+            exit_code = main(["daemon", "run", "--once"])
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        assert "== Daemon Run ==" in captured.out
+        assert "Mode: foreground-once" in captured.out
+
 
 class TestUpdateOutput:
     def test_plain_progress_is_compact(self, tmp_path: Path, capsys):

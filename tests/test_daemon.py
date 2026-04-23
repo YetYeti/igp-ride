@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import plistlib
 import sys
 from datetime import UTC, datetime
@@ -14,6 +13,7 @@ from igp_ride.config import AppConfig
 from igp_ride.cli import cmd_daemon_status
 from igp_ride.daemon import (
     CycleResult,
+    DaemonError,
     DaemonPaths,
     get_daemon_status,
     parse_interval_spec,
@@ -117,12 +117,21 @@ class TestRunSyncCycle:
 
 
 class TestStartAndStopDaemonProcess:
+    def test_start_daemon_process_rejects_windows(self, tmp_path: Path):
+        config = _make_config(tmp_path)
+
+        with patch("igp_ride.daemon.sys.platform", "win32"):
+            with pytest.raises(DaemonError, match="only supported on macOS"):
+                start_daemon_process(config, interval_spec="30m")
+
     def test_start_daemon_process_writes_launch_agent_plist(self, tmp_path: Path):
         config = _make_config(tmp_path)
         paths = _make_paths(tmp_path)
 
         with (
+            patch("igp_ride.daemon.is_daemon_management_supported", return_value=True),
             patch("igp_ride.daemon.get_daemon_paths", return_value=paths),
+            patch("igp_ride.daemon._launchctl_domain", return_value="gui/501"),
             patch("igp_ride.daemon._launch_agent_loaded", return_value=False),
             patch("igp_ride.daemon.subprocess.run") as mock_run,
         ):
@@ -155,7 +164,7 @@ class TestStartAndStopDaemonProcess:
             "echo hook",
         ]
         mock_run.assert_called_once_with(
-            ["launchctl", "bootstrap", f"gui/{os.getuid()}", str(paths.launch_agent_file)],
+            ["launchctl", "bootstrap", "gui/501", str(paths.launch_agent_file)],
             check=True,
         )
 
@@ -166,7 +175,9 @@ class TestStartAndStopDaemonProcess:
         paths.launch_agent_file.write_bytes(b"plist")
 
         with (
+            patch("igp_ride.daemon.is_daemon_management_supported", return_value=True),
             patch("igp_ride.daemon.get_daemon_paths", return_value=paths),
+            patch("igp_ride.daemon._launchctl_domain", return_value="gui/501"),
             patch("igp_ride.daemon._launch_agent_loaded", side_effect=[True, False]),
             patch("igp_ride.daemon.subprocess.run") as mock_run,
             patch("igp_ride.daemon.time.monotonic", side_effect=[0.0, 0.0]),
@@ -181,7 +192,7 @@ class TestStartAndStopDaemonProcess:
         assert state["running"] is False
         assert state["backend"] == "launch-agent"
         mock_run.assert_called_once_with(
-            ["launchctl", "bootout", f"gui/{os.getuid()}", str(paths.launch_agent_file)],
+            ["launchctl", "bootout", "gui/501", str(paths.launch_agent_file)],
             check=True,
         )
 
@@ -194,6 +205,7 @@ class TestDaemonStatusState:
         paths.state_file.write_text('{"last_status":"ok"}', encoding="utf-8")
 
         with (
+            patch("igp_ride.daemon.is_daemon_management_supported", return_value=True),
             patch("igp_ride.daemon.get_daemon_paths", return_value=paths),
             patch("igp_ride.daemon._launch_agent_loaded", return_value=True),
             patch("igp_ride.daemon._is_process_running", return_value=True),
@@ -230,6 +242,30 @@ class TestRunDaemonLoop:
         assert state["running"] is False
         assert state["last_status"] == "ok"
         assert state["last_new_activities"] == 0
+
+    def test_once_mode_uses_foreground_backend_when_daemon_management_is_unsupported(
+        self, tmp_path: Path
+    ):
+        config = _make_config(tmp_path)
+        paths = _make_paths(tmp_path)
+        service = FakeService(SyncSummary(remote_fetched=1, new_activities=0))
+
+        with (
+            patch("igp_ride.daemon.get_daemon_paths", return_value=paths),
+            patch("igp_ride.daemon.is_daemon_management_supported", return_value=False),
+        ):
+            exit_code = run_daemon_loop(
+                config,
+                interval_seconds=60,
+                hook_command=None,
+                once=True,
+                service_factory=lambda _config: service,
+            )
+
+        state = json.loads(paths.state_file.read_text(encoding="utf-8"))
+        assert exit_code == 0
+        assert state["backend"] == "foreground"
+        assert "launch_agent_file" not in state
 
 
 class TestDaemonStatusOutput:

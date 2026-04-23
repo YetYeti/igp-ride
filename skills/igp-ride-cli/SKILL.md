@@ -50,7 +50,9 @@ igp-ride --help
 
 ## 运行时数据位置
 
-默认使用 XDG 路径，不要自行发明其他目录：
+默认使用当前平台对应的配置、数据和日志目录，不要自行发明其他目录。
+
+Linux / macOS 默认路径：
 
 - 配置目录：`~/.config/igp-ride`
 - 会话文件：`~/.config/igp-ride/session.json`
@@ -61,7 +63,18 @@ igp-ride --help
 - 守护进程日志：`~/.local/share/igp-ride/logs/daemon.log`
 - macOS LaunchAgent：`~/Library/LaunchAgents/com.yetyeti.igp-ride.daemon.plist`
 
-账号密码和会话令牌会写入系统 keyring。`session.json` 只保存用户名和保存时间。
+Windows 默认路径：
+
+- 配置目录：`%APPDATA%\igp-ride`
+- 会话文件：`%APPDATA%\igp-ride\session.json`
+- 会话数据文件：`%APPDATA%\igp-ride\session_data.json`
+- 数据目录：`%LOCALAPPDATA%\igp-ride`
+- SQLite 数据库：`%LOCALAPPDATA%\igp-ride\rides.db`
+- FIT 文件目录：`%LOCALAPPDATA%\igp-ride\fit`
+- 普通日志：`%LOCALAPPDATA%\igp-ride\Logs\igp-ride.log`
+- 守护进程日志：`%LOCALAPPDATA%\igp-ride\Logs\daemon.log`
+
+账号密码会写入系统 keyring。Linux / macOS 会话令牌写入系统 keyring；Windows 会话令牌写入 `session_data.json`。`session.json` 只保存用户名和保存时间。
 
 ## 命令选择
 
@@ -174,6 +187,7 @@ igp-ride daemon run --once
 - 用户要检查运行状态、最近一次同步结果、日志位置时，用 `daemon status`
 - `--interval` 支持 `30m`、`1h`、`45` 这类写法；纯数字默认按分钟解释
 - 只有检测到新活动时，`--hook` 才会触发
+- Windows 当前不支持 `daemon start` / `daemon stop` / `daemon status`；如需在 Windows 上执行一轮前台同步，可继续使用 `igp-ride daemon run --once`
 
 hook 环境变量包括：
 

@@ -2,18 +2,41 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+from platformdirs import user_config_path, user_data_path, user_log_path
 
-XDG_DATA_HOME = Path(os.getenv("XDG_DATA_HOME", Path.home() / ".local" / "share"))
-LOG_DIR = XDG_DATA_HOME / "igp-ride" / "logs"
-LOG_FILE = LOG_DIR / "igp-ride.log"
+
+APP_NAME = "igp-ride"
 
 MAX_LOG_BYTES = 10 * 1024 * 1024  # 10 MB
 LOG_BACKUP_COUNT = 3
 
 _logging_initialized = False
+
+
+def get_config_dir() -> Path:
+    if sys.platform != "win32":
+        return Path(os.getenv("XDG_CONFIG_HOME", Path.home() / ".config")) / APP_NAME
+    return Path(user_config_path(APP_NAME, appauthor=False, ensure_exists=False))
+
+
+def get_data_dir() -> Path:
+    if sys.platform != "win32":
+        return Path(os.getenv("XDG_DATA_HOME", Path.home() / ".local" / "share")) / APP_NAME
+    return Path(user_data_path(APP_NAME, appauthor=False, ensure_exists=False))
+
+
+def get_log_dir() -> Path:
+    if sys.platform != "win32":
+        return get_data_dir() / "logs"
+    return Path(user_log_path(APP_NAME, appauthor=False, ensure_exists=False))
+
+
+def get_log_file() -> Path:
+    return get_log_dir() / f"{APP_NAME}.log"
 
 
 def setup_logging() -> None:
@@ -34,9 +57,11 @@ def setup_logging() -> None:
 
     # File handler: DEBUG and above with rotation
     try:
-        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        log_dir = get_log_dir()
+        log_file = get_log_file()
+        log_dir.mkdir(parents=True, exist_ok=True)
         file_handler = RotatingFileHandler(
-            LOG_FILE,
+            log_file,
             maxBytes=MAX_LOG_BYTES,
             backupCount=LOG_BACKUP_COUNT,
             encoding="utf-8",

@@ -15,6 +15,7 @@ from igp_ride.daemon import (
     DEFAULT_INTERVAL,
     DaemonError,
     get_daemon_status,
+    is_daemon_management_supported,
     parse_interval_spec,
     run_daemon_loop,
     start_daemon_process,
@@ -352,6 +353,7 @@ def cmd_daemon(args: argparse.Namespace) -> int:
 
 
 def cmd_daemon_start(interval: str, hook_command: str | None) -> int:
+    _ensure_daemon_management_supported()
     config = AppConfig.load(require_credentials=True)
     interval_seconds = parse_interval_spec(interval)
     paths = start_daemon_process(
@@ -409,6 +411,7 @@ def cmd_daemon_run(interval: str, hook_command: str | None, once: bool) -> int:
 
 
 def cmd_daemon_stop() -> int:
+    _ensure_daemon_management_supported()
     config = AppConfig.load()
     stopped, paths = stop_daemon_process(config)
     _print_title("Daemon Stop")
@@ -419,6 +422,7 @@ def cmd_daemon_stop() -> int:
 
 
 def cmd_daemon_status() -> int:
+    _ensure_daemon_management_supported()
     config = AppConfig.load()
     state = get_daemon_status(config)
     running = _as_bool(state.get("running"))
@@ -760,6 +764,15 @@ def _command_title(args: argparse.Namespace) -> str:
         "stats": "Ride Statistics",
     }
     return command_titles.get(_as_str_state(getattr(args, "command", "")), "igp-ride")
+
+
+def _ensure_daemon_management_supported() -> None:
+    if is_daemon_management_supported():
+        return
+    raise DaemonError(
+        "Daemon start/stop/status is only supported on macOS. "
+        "Use `igp-ride update` or `igp-ride daemon run --once` instead."
+    )
 
 
 def _print_title(title: str, *, file: TextIO | None = None) -> None:

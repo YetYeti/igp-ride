@@ -18,7 +18,7 @@ from typing import Final, cast
 from igp_ride.config import AppConfig
 from igp_ride.models import SyncSummary
 from igp_ride.service import RideSyncService
-from igp_ride.utils import LOG_DIR, format_duration, get_logger
+from igp_ride.utils import format_duration, get_log_dir, get_logger
 
 
 logger = get_logger(__name__)
@@ -82,12 +82,16 @@ def get_daemon_paths(config: AppConfig) -> DaemonPaths:
     return DaemonPaths(
         pid_file=config.session_file.parent / PID_FILE_NAME,
         state_file=config.session_file.parent / STATE_FILE_NAME,
-        log_file=LOG_DIR / "daemon.log",
+        log_file=get_log_dir() / "daemon.log",
         launch_agent_file=Path.home()
         / "Library"
         / "LaunchAgents"
         / f"{LAUNCH_AGENT_LABEL}.plist",
     )
+
+
+def is_daemon_management_supported() -> bool:
+    return sys.platform == "darwin"
 
 
 def daemon_is_running(paths: DaemonPaths) -> bool:
@@ -128,6 +132,8 @@ def start_daemon_process(
     interval_spec: str,
     hook_command: str | None = None,
 ) -> DaemonPaths:
+    if not is_daemon_management_supported():
+        raise DaemonError("Daemon scheduling is only supported on macOS.")
     paths = get_daemon_paths(config)
     if _launch_agent_loaded(paths):
         raise DaemonError("Daemon is already loaded via LaunchAgent.")
@@ -172,6 +178,8 @@ def start_daemon_process(
 
 
 def stop_daemon_process(config: AppConfig) -> tuple[bool, DaemonPaths]:
+    if not is_daemon_management_supported():
+        raise DaemonError("Daemon scheduling is only supported on macOS.")
     paths = get_daemon_paths(config)
     launch_agent_loaded = _launch_agent_loaded(paths)
     if not launch_agent_loaded and not paths.launch_agent_file.exists():
@@ -201,18 +209,24 @@ def stop_daemon_process(config: AppConfig) -> tuple[bool, DaemonPaths]:
 def get_daemon_status(config: AppConfig) -> dict[str, object]:
     paths = get_daemon_paths(config)
     state = load_daemon_state(paths.state_file)
-    loaded = _launch_agent_loaded(paths)
     pid = read_daemon_pid(paths.pid_file)
     active = pid is not None and _is_process_running(pid)
+    loaded = _launch_agent_loaded(paths) if is_daemon_management_supported() else active
     if pid is not None:
         state["pid"] = pid
     else:
         state.pop("pid", None)
     state["running"] = loaded
     state["active"] = active
-    state["backend"] = "launch-agent"
-    state["launch_agent_file"] = str(paths.launch_agent_file)
-    state["launch_agent_label"] = paths.launch_agent_label
+    if is_daemon_management_supported():
+        state["backend"] = "launch-agent"
+        state["launch_agent_file"] = str(paths.launch_agent_file)
+        state["launch_agent_label"] = paths.launch_agent_label
+    else:
+        backend = state.get("backend")
+        state["backend"] = backend if isinstance(backend, str) and backend else "foreground"
+        state.pop("launch_agent_file", None)
+        state.pop("launch_agent_label", None)
     if "log_file" not in state:
         state["log_file"] = str(paths.log_file)
     return state
@@ -256,19 +270,26 @@ def run_daemon_loop(
             "pid": os.getpid(),
             "running": True,
             "started_at": state.get("started_at", started_at.isoformat()),
-            "backend": state.get("backend", "launch-agent"),
+            "backend": state.get(
+                "backend",
+                "launch-agent" if is_daemon_management_supported() else "foreground",
+            ),
             "interval_seconds": interval_seconds,
             "hook_command": hook_command or "",
             "log_file": str(paths.log_file),
-            "launch_agent_file": state.get(
-                "launch_agent_file", str(paths.launch_agent_file)
-            ),
-            "launch_agent_label": state.get(
-                "launch_agent_label", paths.launch_agent_label
-            ),
             "last_status": "running",
         }
     )
+    if is_daemon_management_supported():
+        state["launch_agent_file"] = state.get(
+            "launch_agent_file", str(paths.launch_agent_file)
+        )
+        state["launch_agent_label"] = state.get(
+            "launch_agent_label", paths.launch_agent_label
+        )
+    else:
+        state.pop("launch_agent_file", None)
+        state.pop("launch_agent_label", None)
     _write_pid_file(paths.pid_file, os.getpid())
     save_daemon_state(paths.state_file, state)
 

@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final
+from collections.abc import Mapping
 
 import keyring
 from keyring.errors import KeyringError, PasswordDeleteError
 
-from igp_ride.utils import ensure_dir
+from igp_ride.utils import ensure_dir, get_config_dir, get_data_dir
 
 
 class ConfigurationError(Exception):
@@ -20,14 +22,29 @@ KEYRING_PASSWORD_SERVICE: Final[str] = "igp-ride"
 KEYRING_SESSION_SERVICE: Final[str] = "igp-ride-session"
 DEFAULT_BASE_URL: Final[str] = "https://my.igpsport.com"
 
-XDG_CONFIG_HOME = Path(os.getenv("XDG_CONFIG_HOME", Path.home() / ".config"))
-XDG_DATA_HOME = Path(os.getenv("XDG_DATA_HOME", Path.home() / ".local" / "share"))
 
-CONFIG_DIR = XDG_CONFIG_HOME / "igp-ride"
-DATA_DIR = XDG_DATA_HOME / "igp-ride"
-FIT_DIR = DATA_DIR / "fit"
-SESSION_FILE = CONFIG_DIR / "session.json"
-DB_FILE = DATA_DIR / "rides.db"
+def get_default_config_dir() -> Path:
+    return get_config_dir()
+
+
+def get_default_data_dir() -> Path:
+    return get_data_dir()
+
+
+def get_default_fit_dir() -> Path:
+    return get_default_data_dir() / "fit"
+
+
+def get_default_session_file() -> Path:
+    return get_default_config_dir() / "session.json"
+
+
+def get_default_session_data_file() -> Path:
+    return get_default_config_dir() / "session_data.json"
+
+
+def get_default_db_file() -> Path:
+    return get_default_data_dir() / "rides.db"
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,10 +52,10 @@ class AppConfig:
     username: str
     password: str
     base_url: str = DEFAULT_BASE_URL
-    data_dir: Path = DATA_DIR
-    fit_dir: Path = FIT_DIR
-    session_file: Path = SESSION_FILE
-    db_path: Path = DB_FILE
+    data_dir: Path = field(default_factory=get_default_data_dir)
+    fit_dir: Path = field(default_factory=get_default_fit_dir)
+    session_file: Path = field(default_factory=get_default_session_file)
+    db_path: Path = field(default_factory=get_default_db_file)
 
     @classmethod
     def load(cls, require_credentials: bool = False) -> "AppConfig":
@@ -58,9 +75,9 @@ class AppConfig:
 
 
 def ensure_runtime_dirs() -> None:
-    ensure_dir(CONFIG_DIR)
-    ensure_dir(DATA_DIR)
-    ensure_dir(FIT_DIR)
+    ensure_dir(get_default_config_dir())
+    ensure_dir(get_default_data_dir())
+    ensure_dir(get_default_fit_dir())
 
 
 def save_credentials(username: str, password: str) -> None:
@@ -77,6 +94,8 @@ def delete_credentials(username: str) -> None:
 def load_session_data(username: str) -> dict[str, object]:
     if not username:
         return {}
+    if sys.platform == "win32":
+        return _load_session_data_file()
     try:
         payload = keyring.get_password(KEYRING_SESSION_SERVICE, username)
     except KeyringError:
@@ -100,6 +119,9 @@ def save_session_data(
         "cookies": cookies,
         "authorization": authorization,
     }
+    if sys.platform == "win32":
+        _save_session_data_file(payload)
+        return
     keyring.set_password(
         KEYRING_SESSION_SERVICE,
         username,
@@ -108,6 +130,9 @@ def save_session_data(
 
 
 def delete_session_data(username: str) -> None:
+    if sys.platform == "win32":
+        _delete_session_data_file()
+        return
     try:
         keyring.delete_password(KEYRING_SESSION_SERVICE, username)
     except PasswordDeleteError:
@@ -115,10 +140,11 @@ def delete_session_data(username: str) -> None:
 
 
 def _read_session_username() -> str | None:
-    if not SESSION_FILE.exists():
+    session_file = get_default_session_file()
+    if not session_file.exists():
         return None
     try:
-        payload = json.loads(SESSION_FILE.read_text(encoding="utf-8"))
+        payload = json.loads(session_file.read_text(encoding="utf-8"))
     except OSError, json.JSONDecodeError:
         return None
     if not isinstance(payload, dict):
@@ -141,3 +167,28 @@ def _load_password(username: str) -> str | None:
         return keyring.get_password(KEYRING_PASSWORD_SERVICE, username)
     except KeyringError:
         return None
+
+
+def _load_session_data_file() -> dict[str, object]:
+    session_data_file = get_default_session_data_file()
+    try:
+        payload = json.loads(session_data_file.read_text(encoding="utf-8"))
+    except OSError, json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _save_session_data_file(payload: Mapping[str, object]) -> None:
+    session_data_file = get_default_session_data_file()
+    ensure_dir(session_data_file.parent)
+    session_data_file.write_text(
+        json.dumps(payload, ensure_ascii=True, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _delete_session_data_file() -> None:
+    try:
+        get_default_session_data_file().unlink()
+    except FileNotFoundError:
+        pass

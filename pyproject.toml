@@ -17,6 +17,7 @@ classifiers = [
 dependencies = [
     "fitparse>=1.2.0",
     "keyring>=25.7.0",
+    "platformdirs>=4.4.0",
     "requests>=2.28.0",
 ]
 
