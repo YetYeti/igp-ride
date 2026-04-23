@@ -30,6 +30,13 @@ description: 使用 igp-ride 命令行安装、登录并同步 IGPSPORT/iGPSPORT
 - 开启、查看或停止后台自动同步守护进程
 - 排查认证失败、网络失败、缺失本地数据等问题
 
+## 平台支持边界
+
+- macOS：完整支持 `login`、`logout`、`reset`、`update`、`list`、`show`、`stats`、`daemon start/stop/status/run`
+- Windows：支持 `login`、`logout`、`reset`、`update`、`list`、`show`、`stats`、`daemon run --once`
+- Windows 当前不支持 `daemon start`、`daemon stop`、`daemon status`
+- macOS 的后台定时同步由 `LaunchAgent` 托管；Windows 当前只有前台单次执行入口，不要假设存在系统级后台调度
+
 ## 安装与验证
 
 优先在当前仓库根目录安装，不要默认用 `uv run` 代替正式工具安装。
@@ -52,7 +59,7 @@ igp-ride --help
 
 默认使用当前平台对应的配置、数据和日志目录，不要自行发明其他目录。
 
-Linux / macOS 默认路径：
+macOS 默认路径：
 
 - 配置目录：`~/.config/igp-ride`
 - 会话文件：`~/.config/igp-ride/session.json`
@@ -74,7 +81,7 @@ Windows 默认路径：
 - 普通日志：`%LOCALAPPDATA%\igp-ride\Logs\igp-ride.log`
 - 守护进程日志：`%LOCALAPPDATA%\igp-ride\Logs\daemon.log`
 
-账号密码会写入系统 keyring。Linux / macOS 会话令牌写入系统 keyring；Windows 会话令牌写入 `session_data.json`。`session.json` 只保存用户名和保存时间。
+账号密码会写入系统 keyring。macOS 会话令牌写入系统 keyring；Windows 会话令牌写入 `session_data.json`。`session.json` 只保存用户名和保存时间。
 
 ## 命令选择
 
@@ -100,6 +107,7 @@ IGP_PASSWORD=<密码> igp-ride login --username <用户名>
 - 如果当前执行环境不适合交互输入，优先通过环境变量提供凭据，再执行 `igp-ride login`
 - 这个 CLI 没有 `--password` 参数，不要编造不存在的命令行选项
 - 如果只提供了 `--username`，密码仍然会通过安全提示输入；如果同时提供了 `IGP_PASSWORD`，则不会再提示输入密码
+- 在 Windows 上，登录成功后会把会话数据写入 `%APPDATA%\\igp-ride\\session_data.json`，不要再假设它保存在系统 keyring
 
 推荐规则：
 
@@ -187,7 +195,9 @@ igp-ride daemon run --once
 - 用户要检查运行状态、最近一次同步结果、日志位置时，用 `daemon status`
 - `--interval` 支持 `30m`、`1h`、`45` 这类写法；纯数字默认按分钟解释
 - 只有检测到新活动时，`--hook` 才会触发
-- Windows 当前不支持 `daemon start` / `daemon stop` / `daemon status`；如需在 Windows 上执行一轮前台同步，可继续使用 `igp-ride daemon run --once`
+- Windows 当前不支持 `daemon start` / `daemon stop` / `daemon status`
+- Windows 上如需执行一轮前台同步，可继续使用 `igp-ride daemon run --once`
+- Windows 上不要建议用户配置 `LaunchAgent`、检查 plist，或查找 `daemon status` 输出
 
 hook 环境变量包括：
 
