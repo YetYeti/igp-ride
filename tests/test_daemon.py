@@ -290,6 +290,7 @@ class TestDaemonStatusOutput:
 
         with (
             patch("igp_ride.cli.AppConfig.load"),
+            patch("igp_ride.cli.is_daemon_management_supported", return_value=True),
             patch("igp_ride.cli.get_daemon_status", return_value=state),
         ):
             exit_code = cmd_daemon_status()
