@@ -271,9 +271,7 @@ class TestShowOutput:
 
         captured = capsys.readouterr()
         assert activity.start_time is not None
-        expected_start = activity.start_time.astimezone().strftime(
-            "%Y-%m-%d %H:%M:%S %Z"
-        )
+        expected_start = activity.start_time.astimezone().strftime("%Y-%m-%d %H:%M:%S")
         assert exit_code == 0
         assert "== Activity Details ==" in captured.out
         assert "ID: 123456" in captured.out

@@ -512,7 +512,7 @@ def _format_local_timestamp(value: str) -> str:
         timestamp = datetime.fromisoformat(value)
     except ValueError:
         return value
-    return timestamp.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+    return timestamp.astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def cmd_reset(yes: bool) -> int:
@@ -720,6 +720,8 @@ def to_kmh(speed_mps: float) -> float:
 
 def format_path(path: Path) -> str:
     abs_path = path.resolve()
+    if sys.platform == "win32":
+        return str(abs_path)
     home = Path.home().resolve()
     try:
         return f"~/{abs_path.relative_to(home)}"
@@ -885,7 +887,7 @@ def _format_local_timestamp(value: str) -> str:
         return value
     if timestamp.tzinfo is None:
         return timestamp.strftime("%Y-%m-%d %H:%M:%S")
-    return timestamp.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+    return timestamp.astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _format_activity_date(value: datetime | None) -> str:
@@ -901,7 +903,7 @@ def _format_activity_timestamp(value: datetime | None) -> str:
         return "unknown"
     if value.tzinfo is None:
         return value.strftime("%Y-%m-%d %H:%M:%S")
-    return value.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+    return value.astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _join_non_empty(parts: Sequence[str]) -> str:

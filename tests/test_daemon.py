@@ -298,7 +298,7 @@ class TestDaemonStatusOutput:
         expected = (
             datetime(2026, 4, 1, 13, 53, 38, tzinfo=UTC)
             .astimezone()
-            .strftime("%Y-%m-%d %H:%M:%S %Z")
+            .strftime("%Y-%m-%d %H:%M:%S")
         )
         assert exit_code == 0
         assert "== Daemon Status ==" in captured.out
