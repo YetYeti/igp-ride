@@ -1,6 +1,6 @@
 [project]
 name = "igp-ride"
-version = "0.1.2"
+version = "0.1.3"
 description = "Minimal CLI for syncing IGPSPORT ride data"
 readme = "README.md"
 license = "MIT"
@@ -39,7 +39,7 @@ include = ["src"]
 failOnWarnings = false
 
 [tool.bumpversion]
-current_version = "0.1.2"
+current_version = "0.1.3"
 commit = false
 tag = false
 
