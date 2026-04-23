@@ -488,7 +488,7 @@ def cmd_list(limit: int | None, do_update: bool) -> int:
     print()
     print(
         f"{'RIDE_ID':<8}   {'DATE':<10}   {'DISTANCE':>8}   "
-        f"{'TIME':>6}   {'AVG_SPD':>9}   {'ELEV':>6}   {'AVG_PWR':>7}   TITLE"
+        f"{'TIME':>6}   {'AVG_SPD':>9}   {'ELEV':>8}   {'AVG_PWR':>7}   TITLE"
     )
     for activity in activities:
         start = _format_activity_date(activity.start_time)
@@ -502,7 +502,7 @@ def cmd_list(limit: int | None, do_update: bool) -> int:
         print(
             f"{activity.ride_id:<8}   {start:<10}   {distance:>8}   "
             f"{_format_list_duration_display(activity.total_moving_time):>6}   "
-            f"{avg_speed:>9}   {elevation:>6}   {power:>7}   {title}"
+            f"{avg_speed:>9}   {elevation:>8}   {power:>7}   {title}"
         )
     return 0
 

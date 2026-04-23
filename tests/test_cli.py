@@ -255,6 +255,41 @@ class TestListOutput:
         assert "Summary: shown=" not in captured.out
         assert "Count:" not in captured.out
 
+    def test_list_aligns_elevation_column_for_thousands(self, tmp_path: Path, capsys):
+        config = _make_config(tmp_path)
+        first = _make_activity()
+        first.total_ascent = 1110
+        second = Activity(
+            ride_id=123455,
+            member_id=1,
+            title="室内骑行",
+            sport="cycling",
+            sub_sport="indoor",
+            start_time=datetime(2026, 3, 29, 8, 0, 0, tzinfo=UTC),
+            total_distance=32800,
+            total_moving_time=3120,
+            total_elapsed_time=3300,
+            total_ascent=570,
+            avg_speed=9.1111111,
+            avg_power=155,
+        )
+        service = MagicMock()
+        service.list_activities.return_value = [first, second]
+
+        with (
+            patch("igp_ride.cli.AppConfig.load", return_value=config),
+            patch("igp_ride.cli.RideSyncService", return_value=service),
+        ):
+            exit_code = cmd_list(limit=None, do_update=False)
+
+        lines = capsys.readouterr().out.splitlines()
+        assert exit_code == 0
+        first_row = next(line for line in lines if line.startswith("123456"))
+        second_row = next(line for line in lines if line.startswith("123455"))
+        assert "1,110 m" in first_row
+        assert "570 m" in second_row
+        assert first_row.index("215 W") == second_row.index("155 W")
+
 
 class TestShowOutput:
     def test_show_last_uses_structured_fields(self, tmp_path: Path, capsys):
