@@ -22,6 +22,7 @@ logger = get_logger(__name__)
 
 T = TypeVar("T")
 SESSION_MAX_AGE = timedelta(hours=12)
+MIN_FIT_HEADER_BYTES = 14
 
 DEFAULT_USER_AGENT: Final[str] = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -152,14 +153,15 @@ class IGPSportClient:
         if not isinstance(result, dict):
             raise DataSyncError(f"Unexpected FIT response for ride {ride_id}.")
         fit_url = result.get("data")
-        if not isinstance(fit_url, str) or not fit_url.startswith(
-            ("http://", "https://")
-        ):
+        if not isinstance(fit_url, str) or not fit_url.startswith("https://"):
             raise DataSyncError(f"FIT download URL not available for ride {ride_id}.")
 
-        file_response = self._session.get(fit_url, timeout=60)
+        file_response = requests.get(fit_url, timeout=60)
         file_response.raise_for_status()
-        save_path.write_bytes(file_response.content)
+        content = file_response.content
+        if not _looks_like_fit_file(content):
+            raise DataSyncError(f"Downloaded file is not a valid FIT file: {ride_id}.")
+        save_path.write_bytes(content)
         logger.info("FIT file saved for ride %d: %s", ride_id, save_path)
 
     def _create_session(self) -> requests.Session:
@@ -253,3 +255,12 @@ def _parse_iso_datetime(value: str) -> datetime | None:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
+
+
+def _looks_like_fit_file(content: bytes) -> bool:
+    if len(content) < MIN_FIT_HEADER_BYTES:
+        return False
+    header_size = content[0]
+    if header_size < 12 or len(content) < header_size:
+        return False
+    return content[8:12] == b".FIT"
