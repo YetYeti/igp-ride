@@ -538,15 +538,6 @@ def cmd_list(
         )
     return 0
 
-
-def _format_local_timestamp(value: str) -> str:
-    try:
-        timestamp = datetime.fromisoformat(value)
-    except ValueError:
-        return value
-    return timestamp.astimezone().strftime("%Y-%m-%d %H:%M:%S")
-
-
 def cmd_reset(yes: bool) -> int:
     config = AppConfig.load()
     _print_title("Reset")
