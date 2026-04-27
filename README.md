@@ -54,7 +54,7 @@ IGP_USERNAME=<你的用户名> IGP_PASSWORD=<你的密码> igp-ride login
 - 该工具没有 `--password` 参数
 - 默认会把密码写入系统 keyring
 - macOS 会把会话数据写入系统 keyring
-- Windows 会把会话数据写入本地会话文件
+- Windows 会把会话数据通过 DPAPI 加密后写入本地会话文件
 - 登录后会在本地保存用户名和会话时间戳
 
 ### 2. 同步活动
@@ -179,7 +179,8 @@ Windows 默认目录：
 - 默认站点为 `https://my.igpsport.com`
 - 用户名和密码通过系统 keyring 保存
 - macOS 会话数据通过系统 keyring 保存
-- Windows 会话数据保存在 `%APPDATA%\igp-ride\session_data.json`
+- Windows 会话数据通过当前用户 DPAPI 加密后保存在 `%APPDATA%\igp-ride\session_data.json`
+- Windows 会话数据文件会尝试收紧为仅当前用户可读写
 - `session.json` 不直接保存密码
 - `logout` 只清理本地凭据和会话
 - `reset` 会删除数据库、FIT 文件、凭据和会话，请谨慎使用

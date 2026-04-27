@@ -74,14 +74,22 @@ class TestDefaultPaths:
 
 
 class TestWindowsSessionDataStorage:
-    def test_save_session_data_uses_file_on_windows(self, tmp_path: Path):
+    def test_save_session_data_uses_dpapi_protected_file_on_windows(
+        self, tmp_path: Path
+    ):
         session_data_file = tmp_path / "session_data.json"
+        session_payload = b'{"cookies":{"sessionid":"abc"},"authorization":"Bearer token"}'
 
         with (
             patch("igp_ride.config.sys.platform", "win32"),
             patch(
                 "igp_ride.config.get_default_session_data_file",
                 return_value=session_data_file,
+            ),
+            patch("igp_ride.config._protect_with_dpapi", return_value=b"encrypted"),
+            patch(
+                "igp_ride.config._unprotect_with_dpapi",
+                return_value=session_payload,
             ),
             patch("igp_ride.config.keyring.set_password") as mock_set_password,
         ):
@@ -92,11 +100,64 @@ class TestWindowsSessionDataStorage:
             )
             payload = load_session_data("tester")
 
+            stored = session_data_file.read_text(encoding="utf-8")
+            assert "Bearer token" not in stored
+            assert "sessionid" not in stored
             assert payload == {
                 "cookies": {"sessionid": "abc"},
                 "authorization": "Bearer token",
             }
             mock_set_password.assert_not_called()
+
+    def test_load_session_data_accepts_legacy_plain_file_on_windows(self, tmp_path: Path):
+        session_data_file = tmp_path / "session_data.json"
+        session_data_file.write_text(
+            '{"cookies":{"sessionid":"abc"},"authorization":"Bearer token"}',
+            encoding="utf-8",
+        )
+
+        with (
+            patch("igp_ride.config.sys.platform", "win32"),
+            patch(
+                "igp_ride.config.get_default_session_data_file",
+                return_value=session_data_file,
+            ),
+        ):
+            payload = load_session_data("tester")
+
+        assert payload == {
+            "cookies": {"sessionid": "abc"},
+            "authorization": "Bearer token",
+        }
+
+    def test_restrict_session_data_permissions_uses_icacls_on_windows(
+        self, tmp_path: Path
+    ):
+        from igp_ride.config import _restrict_session_data_file_permissions
+
+        session_data_file = tmp_path / "session_data.json"
+        session_data_file.write_text("{}", encoding="utf-8")
+
+        with (
+            patch("igp_ride.config.sys.platform", "win32"),
+            patch("igp_ride.config.os.name", "nt"),
+            patch("igp_ride.config._current_windows_identity", return_value="USER\\me"),
+            patch("igp_ride.config.subprocess.run") as mock_run,
+        ):
+            _restrict_session_data_file_permissions(session_data_file)
+
+        mock_run.assert_called_once_with(
+            [
+                "icacls",
+                str(session_data_file),
+                "/inheritance:r",
+                "/grant:r",
+                "USER\\me:(R,W)",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
 
     def test_delete_session_data_uses_file_on_windows(self, tmp_path: Path):
         session_data_file = tmp_path / "session_data.json"
