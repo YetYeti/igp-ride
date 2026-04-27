@@ -12,6 +12,7 @@ from igp_ride.service import (
     _as_str,
     _calculate_fetch_limits,
 )
+from igp_ride.parser import FitParseError
 
 
 class TestAsInt:
@@ -94,35 +95,11 @@ class TestCalculateFetchLimits:
         assert page_size == 200
         assert max_pages == 1000
 
-    def test_one_day_gap(self):
-        from datetime import timedelta
-
-        yesterday = (datetime.now(UTC) - timedelta(days=1)).isoformat()
-        page_size, max_pages = _calculate_fetch_limits(yesterday)
-        assert page_size == 5
-        assert max_pages == 1
-
-    def test_seven_day_gap(self):
-        from datetime import timedelta
-
-        week_ago = (datetime.now(UTC) - timedelta(days=7)).isoformat()
-        page_size, max_pages = _calculate_fetch_limits(week_ago)
-        assert page_size == 35
-        assert max_pages == 1
-
-    def test_365_day_gap(self):
-        from datetime import timedelta
-
-        year_ago = (datetime.now(UTC) - timedelta(days=365)).isoformat()
-        page_size, max_pages = _calculate_fetch_limits(year_ago)
-        assert page_size == 1825
-        assert max_pages == 1
-
-    def test_same_day_gap(self):
+    def test_incremental_uses_fixed_page_size(self):
         now = datetime.now(UTC).isoformat()
         page_size, max_pages = _calculate_fetch_limits(now)
-        assert page_size == 5
-        assert max_pages == 1
+        assert page_size == 20
+        assert max_pages == 1000
 
 
 class TestSyncModes:
@@ -184,7 +161,83 @@ class TestSyncModes:
             actual_page_size = call_kwargs.kwargs.get("page_size") or call_kwargs[
                 1
             ].get("page_size")
-            assert actual_page_size == 15
+            assert actual_page_size == 20
+
+    def test_sync_incremental_fetches_until_known_activity_boundary(self):
+        from datetime import timedelta
+
+        config = MagicMock()
+        config.db_path = ":memory:"
+        config.fit_dir = Path("/tmp/fit")
+        config.username = "test"
+        config.password = "test"
+        config.base_url = "https://example.com"
+        config.session_file = Path("/tmp/session.json")
+
+        with (
+            patch("igp_ride.service.IGPSportClient") as MockClient,
+            patch("igp_ride.service.ActivityDatabase") as MockDB,
+            patch("igp_ride.service.parse_fit_file", side_effect=FitParseError("bad")),
+        ):
+            mock_client = MockClient.return_value
+            mock_db = MockDB.return_value
+            three_days_ago = (datetime.now(UTC) - timedelta(days=3)).isoformat()
+            mock_db.get_sync_meta.return_value = three_days_ago
+            mock_db.get_all_ride_ids.return_value = {1, 2}
+            mock_client.get_activity_page.side_effect = [
+                ([{"RideId": 4}], 4),
+                ([{"RideId": 3}], 4),
+                ([{"RideId": 2}, {"RideId": 1}], 4),
+            ]
+            mock_client.download_fit_file.side_effect = lambda _ride_id, path: (
+                path.parent.mkdir(parents=True, exist_ok=True),
+                path.write_bytes(b"bad fit"),
+            )
+
+            service = RideSyncService(config)
+            summary = service.sync(force_full=False)
+
+            assert summary.remote_fetched == 4
+            assert mock_client.get_activity_page.call_count == 3
+            mock_db.set_sync_meta.assert_called_once()
+
+    def test_sync_incremental_does_not_advance_watermark_without_known_boundary(self):
+        from datetime import timedelta
+
+        config = MagicMock()
+        config.db_path = ":memory:"
+        config.fit_dir = Path("/tmp/fit")
+        config.username = "test"
+        config.password = "test"
+        config.base_url = "https://example.com"
+        config.session_file = Path("/tmp/session.json")
+
+        with (
+            patch("igp_ride.service.MAX_ACTIVITY_PAGES", 2),
+            patch("igp_ride.service.IGPSportClient") as MockClient,
+            patch("igp_ride.service.ActivityDatabase") as MockDB,
+            patch("igp_ride.service.parse_fit_file", side_effect=FitParseError("bad")),
+        ):
+            mock_client = MockClient.return_value
+            mock_db = MockDB.return_value
+            three_days_ago = (datetime.now(UTC) - timedelta(days=3)).isoformat()
+            mock_db.get_sync_meta.return_value = three_days_ago
+            mock_db.get_all_ride_ids.return_value = set()
+            mock_client.get_activity_page.side_effect = [
+                ([{"RideId": 4}], 4),
+                ([{"RideId": 3}], 4),
+            ]
+            mock_client.download_fit_file.side_effect = lambda _ride_id, path: (
+                path.parent.mkdir(parents=True, exist_ok=True),
+                path.write_bytes(b"bad fit"),
+            )
+
+            service = RideSyncService(config)
+            summary = service.sync(force_full=False)
+
+            assert summary.remote_fetched == 2
+            assert mock_client.get_activity_page.call_count == 2
+            mock_db.set_sync_meta.assert_not_called()
 
 
 class TestCredentialCleanup:

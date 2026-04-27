@@ -23,16 +23,14 @@ from igp_ride.utils import get_logger
 
 logger = get_logger(__name__)
 MAX_ACTIVITY_PAGES = 1000
+INCREMENTAL_PAGE_SIZE = 20
 
 
 def _calculate_fetch_limits(last_sync_time: str | None) -> tuple[int, int]:
     """Return (page_size, max_pages) based on time since last sync."""
     if last_sync_time is None:
         return 200, MAX_ACTIVITY_PAGES  # full sync
-    last_sync = datetime.fromisoformat(last_sync_time).date()
-    day_gap = max(1, (date.today() - last_sync).days)
-    page_size = day_gap * 5
-    return page_size, 1  # incremental: 1 HTTP request
+    return INCREMENTAL_PAGE_SIZE, MAX_ACTIVITY_PAGES
 
 
 @dataclass(slots=True)
@@ -148,11 +146,22 @@ class RideSyncService:
         logger.info("Sync params: page_size=%d, max_pages=%d", page_size, max_pages)
 
         summary = SyncSummary()
-        all_remote, total, page_count = self._fetch_all_remote_activities(
-            page_size=page_size,
-            max_pages=max_pages,
-            progress_callback=progress_callback,
-        )
+        local_ride_ids = self.db.get_all_ride_ids()
+        if last_sync_time is not None:
+            all_remote, total, page_count, fetch_complete = (
+                self._fetch_incremental_remote_activities(
+                    page_size=page_size,
+                    local_ride_ids=local_ride_ids,
+                    progress_callback=progress_callback,
+                )
+            )
+        else:
+            all_remote, total, page_count = self._fetch_all_remote_activities(
+                page_size=page_size,
+                max_pages=max_pages,
+                progress_callback=progress_callback,
+            )
+            fetch_complete = True
         if not all_remote:
             return summary
 
@@ -173,7 +182,6 @@ class RideSyncService:
             total,
         )
 
-        local_ride_ids = self.db.get_all_ride_ids()
         logger.debug(
             "Local activities: %d, Remote activities: %d",
             len(local_ride_ids),
@@ -238,7 +246,13 @@ class RideSyncService:
             summary.activities_skipped,
             summary.fit_files_failed,
         )
-        self.db.set_sync_meta("last_sync_time", datetime.now(UTC).isoformat())
+        if fetch_complete:
+            self.db.set_sync_meta("last_sync_time", datetime.now(UTC).isoformat())
+        else:
+            logger.warning(
+                "Incremental sync did not reach a known activity boundary; "
+                "last_sync_time was not updated."
+            )
         return summary
 
     def _fetch_all_remote_activities(
@@ -292,6 +306,65 @@ class RideSyncService:
             logger.warning("Stopped fetching at max pages: %d.", MAX_ACTIVITY_PAGES)
 
         return all_items, total, fetched_pages
+
+    def _fetch_incremental_remote_activities(
+        self,
+        *,
+        page_size: int,
+        local_ride_ids: set[int],
+        progress_callback: Callable[[SyncProgress], None] | None = None,
+    ) -> tuple[list[dict[str, object]], int | None, int, bool]:
+        page = 1
+        total: int | None = None
+        all_items: list[dict[str, object]] = []
+        fetched_pages = 0
+
+        if progress_callback is not None:
+            progress_callback(
+                SyncProgress(
+                    stage="fetching",
+                    done=0,
+                    total=0,
+                )
+            )
+
+        while page <= MAX_ACTIVITY_PAGES:
+            items, page_total = self.client.get_activity_page(
+                page=page, page_size=page_size
+            )
+            if total is None and page_total is not None:
+                total = page_total
+            if not items:
+                return all_items, total, fetched_pages, True
+
+            fetched_pages += 1
+            all_items.extend(items)
+            if progress_callback is not None:
+                progress_callback(
+                    SyncProgress(
+                        stage="fetching",
+                        done=len(all_items),
+                        total=total or len(all_items),
+                    )
+                )
+
+            page_ids = {
+                ride_id
+                for item in items
+                if (ride_id := _as_int(item.get("RideId"))) > 0
+            }
+            if not page_ids or page_ids.issubset(local_ride_ids):
+                return all_items, total, fetched_pages, True
+            if total is not None and len(all_items) >= total:
+                return all_items, total, fetched_pages, True
+
+            page += 1
+
+        logger.warning(
+            "Incremental sync stopped at max pages before reaching known activities: %d.",
+            MAX_ACTIVITY_PAGES,
+        )
+        return all_items, total, fetched_pages, False
 
     def list_activities(
         self,
