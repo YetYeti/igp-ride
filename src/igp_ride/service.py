@@ -7,7 +7,7 @@ from getpass import getpass
 from pathlib import Path
 from typing import Any, Callable
 
-from igp_ride.client import DataSyncError, IGPSportClient
+from igp_ride.client import DataSyncError, IGPSportClient, _looks_like_fit_file
 from igp_ride.config import (
     AppConfig,
     delete_credentials,
@@ -24,6 +24,7 @@ from igp_ride.utils import get_logger
 logger = get_logger(__name__)
 MAX_ACTIVITY_PAGES = 1000
 INCREMENTAL_PAGE_SIZE = 20
+FIT_HEADER_CHECK_BYTES = 64
 
 
 def _calculate_fetch_limits(last_sync_time: str | None) -> tuple[int, int]:
@@ -397,7 +398,7 @@ class RideSyncService:
         progress_callback: Callable[[SyncProgress], None] | None = None,
     ) -> SyncSummary:
         logger.info("Starting FIT file repair")
-        broken = self.db.get_activities_with_missing_fit()
+        broken = self._get_activities_needing_fit_repair()
         summary = SyncSummary(remote_fetched=len(broken))
         if not broken:
             return summary
@@ -451,6 +452,19 @@ class RideSyncService:
             summary.fit_files_failed,
         )
         return summary
+
+    def _get_activities_needing_fit_repair(self) -> list[Activity]:
+        broken = self.db.get_activities_with_missing_fit()
+        broken_ids = {activity.ride_id for activity in broken}
+        for activity in self.db.list_activities():
+            if activity.ride_id in broken_ids:
+                continue
+            if activity.fit_file_status != "downloaded":
+                continue
+            if not _existing_fit_file_header_is_valid(Path(activity.fit_file_path)):
+                broken.append(activity)
+                broken_ids.add(activity.ride_id)
+        return broken
 
     def show_activity(self, ride_id: int) -> Activity | None:
         return self.db.get_by_ride_id(ride_id)
@@ -633,3 +647,11 @@ def _as_str(value: object, default: str = "") -> str:
     if isinstance(value, str) and value:
         return value
     return default
+
+
+def _existing_fit_file_header_is_valid(path: Path) -> bool:
+    try:
+        with path.open("rb") as handle:
+            return _looks_like_fit_file(handle.read(FIT_HEADER_CHECK_BYTES))
+    except OSError:
+        return False

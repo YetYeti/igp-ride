@@ -240,6 +240,81 @@ class TestSyncModes:
             mock_db.set_sync_meta.assert_not_called()
 
 
+class TestRepair:
+    def test_repair_includes_downloaded_activity_with_invalid_fit_header(
+        self, tmp_path: Path
+    ):
+        config = MagicMock()
+        config.db_path = ":memory:"
+        config.fit_dir = tmp_path / "fit"
+        config.username = "test"
+        config.password = "test"
+        config.base_url = "https://example.com"
+        config.session_file = tmp_path / "session.json"
+        damaged_path = config.fit_dir / "1.fit"
+        damaged_path.parent.mkdir(parents=True)
+        damaged_path.write_bytes(b"<html>expired</html>")
+        activity = MagicMock()
+        activity.ride_id = 1
+        activity.fit_file_path = str(damaged_path)
+        activity.fit_file_status = "downloaded"
+
+        with (
+            patch("igp_ride.service.IGPSportClient") as MockClient,
+            patch("igp_ride.service.ActivityDatabase") as MockDB,
+            patch("igp_ride.service.parse_fit_file", return_value={"session": [{}]}),
+        ):
+            mock_client = MockClient.return_value
+            mock_db = MockDB.return_value
+            mock_db.get_activities_with_missing_fit.return_value = []
+            mock_db.list_activities.return_value = [activity]
+            mock_client.download_fit_file.side_effect = lambda _ride_id, path: (
+                path.parent.mkdir(parents=True, exist_ok=True),
+                path.write_bytes(b"\x0e\x10\x00\x00\x00\x00\x00\x00.FITdata"),
+            )
+
+            service = RideSyncService(config)
+            summary = service.repair()
+
+            assert summary.remote_fetched == 1
+            assert summary.updated_activities == 1
+            mock_client.download_fit_file.assert_called_once_with(1, config.fit_dir / "1.fit")
+            mock_db.upsert.assert_called_once()
+
+    def test_repair_skips_downloaded_activity_with_valid_fit_header(
+        self, tmp_path: Path
+    ):
+        config = MagicMock()
+        config.db_path = ":memory:"
+        config.fit_dir = tmp_path / "fit"
+        config.username = "test"
+        config.password = "test"
+        config.base_url = "https://example.com"
+        config.session_file = tmp_path / "session.json"
+        fit_path = config.fit_dir / "1.fit"
+        fit_path.parent.mkdir(parents=True)
+        fit_path.write_bytes(b"\x0e\x10\x00\x00\x00\x00\x00\x00.FITdata")
+        activity = MagicMock()
+        activity.ride_id = 1
+        activity.fit_file_path = str(fit_path)
+        activity.fit_file_status = "downloaded"
+
+        with (
+            patch("igp_ride.service.IGPSportClient") as MockClient,
+            patch("igp_ride.service.ActivityDatabase") as MockDB,
+        ):
+            mock_client = MockClient.return_value
+            mock_db = MockDB.return_value
+            mock_db.get_activities_with_missing_fit.return_value = []
+            mock_db.list_activities.return_value = [activity]
+
+            service = RideSyncService(config)
+            summary = service.repair()
+
+            assert summary.remote_fetched == 0
+            mock_client.download_fit_file.assert_not_called()
+
+
 class TestCredentialCleanup:
     def test_logout_deletes_credentials_and_session(self):
         config = MagicMock()
