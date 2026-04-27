@@ -315,6 +315,100 @@ class TestRepair:
             mock_client.download_fit_file.assert_not_called()
 
 
+class TestBuildActivity:
+    def test_build_activity_falls_back_to_remote_summary_when_fit_fields_are_missing(
+        self, tmp_path: Path
+    ):
+        config = MagicMock()
+        config.db_path = ":memory:"
+        config.fit_dir = tmp_path / "fit"
+        config.username = "test"
+        config.password = "test"
+        config.base_url = "https://example.com"
+        config.session_file = tmp_path / "session.json"
+        fit_path = config.fit_dir / "1.fit"
+        fit_path.parent.mkdir(parents=True)
+        fit_path.write_bytes(b"\x0e\x10\x00\x00\x00\x00\x00\x00.FITdata")
+
+        with (
+            patch("igp_ride.service.IGPSportClient"),
+            patch("igp_ride.service.ActivityDatabase"),
+            patch(
+                "igp_ride.service.parse_fit_file",
+                return_value={"session": [{"sport": "cycling"}]},
+            ),
+        ):
+            service = RideSyncService(config)
+            activity = service._build_activity(
+                {
+                    "RideId": 1,
+                    "MemberId": 2,
+                    "Title": "Remote Ride",
+                    "RideDistance": 45.2,
+                    "TotalAscent": 420,
+                },
+                fit_path,
+                "downloaded",
+            )
+
+        assert activity.total_distance == 45200
+        assert activity.total_ascent == 420
+
+    def test_build_activity_from_existing_keeps_existing_values_when_fit_fields_are_missing(
+        self, tmp_path: Path
+    ):
+        config = MagicMock()
+        config.db_path = ":memory:"
+        config.fit_dir = tmp_path / "fit"
+        config.username = "test"
+        config.password = "test"
+        config.base_url = "https://example.com"
+        config.session_file = tmp_path / "session.json"
+        existing = MagicMock()
+        existing.ride_id = 1
+        existing.member_id = 2
+        existing.title = "Existing Ride"
+        existing.sport = "cycling"
+        existing.sub_sport = "road"
+        existing.start_time = None
+        existing.total_ascent = 420
+        existing.total_descent = 410
+        existing.total_calories = 1200
+        existing.total_distance = 45200
+        existing.total_elapsed_time = 5000
+        existing.total_moving_time = 4800
+        existing.avg_cadence = 85
+        existing.max_cadence = 110
+        existing.avg_heart_rate = 140
+        existing.min_heart_rate = 90
+        existing.max_heart_rate = 170
+        existing.avg_power = 200
+        existing.max_power = 600
+        existing.avg_speed = 9.2
+        existing.max_speed = 15.5
+        existing.avg_temperature = 22
+        existing.max_temperature = 29
+        existing.intensity_factor = 0.8
+        existing.normalized_power = 220
+        existing.training_stress_score = 90
+
+        with (
+            patch("igp_ride.service.IGPSportClient"),
+            patch("igp_ride.service.ActivityDatabase"),
+        ):
+            service = RideSyncService(config)
+            activity = service._build_activity_from_existing(
+                existing,
+                {"sport": "cycling"},
+                tmp_path / "1.fit",
+                "downloaded",
+            )
+
+        assert activity.total_distance == 45200
+        assert activity.total_ascent == 420
+        assert activity.avg_power == 200
+
+
 class TestCredentialCleanup:
     def test_logout_deletes_credentials_and_session(self):
         config = MagicMock()

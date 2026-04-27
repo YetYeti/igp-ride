@@ -58,28 +58,33 @@ def normalize_session_data(parsed_data: dict[str, Any]) -> dict[str, Any]:
     if start_time is not None and getattr(start_time, "tzinfo", None) is None:
         start_time = start_time.replace(tzinfo=timezone.utc).astimezone()
 
-    return {
+    normalized = {
         "sport": session_record.get("sport", "cycling"),
         "sub_sport": session_record.get("sub_sport", "road"),
         "start_time": start_time,
-        "total_ascent": session_record.get("total_ascent", 0),
-        "total_descent": session_record.get("total_descent", 0),
-        "total_calories": session_record.get("total_calories", 0),
-        "total_distance": session_record.get("total_distance", 0.0),
-        "total_elapsed_time": session_record.get("total_elapsed_time", 0.0),
-        "total_moving_time": session_record.get("total_moving_time", 0.0),
-        "avg_cadence": session_record.get("avg_cadence", 0),
-        "max_cadence": session_record.get("max_cadence", 0),
-        "avg_heart_rate": session_record.get("avg_heart_rate", 0),
-        "min_heart_rate": session_record.get("min_heart_rate", 0),
-        "max_heart_rate": session_record.get("max_heart_rate", 0),
-        "avg_power": session_record.get("avg_power", 0),
-        "max_power": session_record.get("max_power", 0),
-        "avg_speed": session_record.get("avg_speed", 0.0),
-        "max_speed": session_record.get("max_speed", 0.0),
-        "avg_temperature": session_record.get("avg_temperature", 0),
-        "max_temperature": session_record.get("max_temperature", 0),
-        "intensity_factor": session_record.get("intensity_factor", 0.0),
-        "normalized_power": session_record.get("normalized_power", 0),
-        "training_stress_score": session_record.get("training_stress_score", 0.0),
     }
+    for key in (
+        "total_ascent",
+        "total_descent",
+        "total_calories",
+        "total_distance",
+        "total_elapsed_time",
+        "total_moving_time",
+        "avg_cadence",
+        "max_cadence",
+        "avg_heart_rate",
+        "min_heart_rate",
+        "max_heart_rate",
+        "avg_power",
+        "max_power",
+        "avg_speed",
+        "max_speed",
+        "avg_temperature",
+        "max_temperature",
+        "intensity_factor",
+        "normalized_power",
+        "training_stress_score",
+    ):
+        if key in session_record:
+            normalized[key] = session_record[key]
+    return normalized

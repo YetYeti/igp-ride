@@ -35,8 +35,8 @@ class TestNormalizeSessionData:
     def test_missing_fields_use_defaults(self):
         data = {"session": [{}]}
         result = normalize_session_data(data)
-        assert result["total_distance"] == 0.0
-        assert result["avg_power"] == 0
+        assert "total_distance" not in result
+        assert "avg_power" not in result
         assert result["sport"] == "cycling"
 
     def test_sport_and_sub_sport(self):
