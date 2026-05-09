@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import functools
 import json
-import re
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Final, TypeVar, cast
+from typing import Any, Final, TypeVar, cast
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -22,7 +21,9 @@ logger = get_logger(__name__)
 
 T = TypeVar("T")
 SESSION_MAX_AGE = timedelta(hours=12)
+TOKEN_EXPIRY_SAFETY = timedelta(minutes=5)
 MIN_FIT_HEADER_BYTES = 14
+IGPSPORT_WEB_APP_ID: Final[str] = "igpsport-web"
 
 DEFAULT_USER_AGENT: Final[str] = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -54,6 +55,13 @@ def auth_retry(max_retries: int = 2, backoff: float = 1.0):
                         self.login()
                         continue
                     raise
+                except AuthenticationError:
+                    if attempt < max_retries:
+                        time.sleep(backoff * (2**attempt))
+                        self._authenticated = False
+                        self.login()
+                        continue
+                    raise
             raise RuntimeError("unreachable")
 
         return wrapper
@@ -78,6 +86,8 @@ class IGPSportClient:
         self._session = self._create_session()
         self._authenticated = False
         self._session_saved_at: datetime | None = None
+        self._session_expires_at: datetime | None = None
+        self._refresh_token = ""
         self._load_session()
 
     def close(self) -> None:
@@ -85,29 +95,36 @@ class IGPSportClient:
 
     def login(self) -> None:
         logger.debug("Attempting login for user: %s", self.username)
-        url = f"{self.base_url}/Auth/Login"
-        data = {"username": self.username, "password": self.password}
+        url = f"{self.base_url}/auth/account/login"
+        data = {
+            "appId": IGPSPORT_WEB_APP_ID,
+            "username": self.username,
+            "password": self.password,
+        }
         headers = {
-            "Content-Type": "application/x-www-form-urlencoded",
+            "Content-Type": "application/json",
             "User-Agent": DEFAULT_USER_AGENT,
-            "Accept": "application/json, text/javascript, */*; q=0.01",
-            "X-Requested-With": "XMLHttpRequest",
-            "Accept-Encoding": "gzip, deflate",
+            "Accept": "application/json, text/plain, */*",
         }
 
         response = self._session.post(
-            url, data=data, headers=headers, timeout=self.timeout
+            url, json=data, headers=headers, timeout=self.timeout
         )
         response.raise_for_status()
-        set_cookie = response.headers.get("Set-Cookie", "")
-        if "loginTicket" not in set_cookie:
-            raise AuthenticationError("Login failed: unable to get login ticket.")
+        result = _decode_json_object(response)
+        _raise_for_business_error(result, default_message="Login failed.")
+        data = result.get("data")
+        if not isinstance(data, dict):
+            raise AuthenticationError("Login failed: missing token data.")
+        access_token = data.get("access_token")
+        if not isinstance(access_token, str) or not access_token:
+            raise AuthenticationError("Login failed: missing access token.")
+        refresh_token = data.get("refresh_token")
+        expires_in = data.get("expires_in")
 
-        login_match = re.search(r"loginToken=(.*?);", set_cookie)
-        if login_match:
-            self._session.headers.update(
-                {"Authorization": f"Bearer {login_match.group(1)}"}
-            )
+        self._session.headers.update({"Authorization": f"Bearer {access_token}"})
+        self._refresh_token = refresh_token if isinstance(refresh_token, str) else ""
+        self._session_expires_at = _calculate_expires_at(expires_in)
 
         self._authenticated = True
         self._session_saved_at = datetime.now(UTC)
@@ -121,23 +138,27 @@ class IGPSportClient:
         self._ensure_authenticated()
         logger.debug("Fetching activity page %d (page_size=%d)", page, page_size)
         response = self._session.get(
-            f"{self.base_url}/Activity/ActivityList",
-            params={"pageIndex": page, "pageSize": page_size},
+            f"{self.base_url}/web-gateway/web-analyze/activity/queryMyActivity",
+            params={"pageNo": page, "pageSize": page_size, "reqType": 0, "sort": 1},
             timeout=self.timeout,
         )
         response.raise_for_status()
-        result = cast(object, response.json(strict=False))
-        if not isinstance(result, dict):
+        result = _decode_json_object(response)
+        _raise_for_business_error(result, default_message="Failed to fetch activities.")
+        data = result.get("data")
+        if not isinstance(data, dict):
             return [], None
-        items = result.get("item", [])
-        total = result.get("total")
+        items = data.get("rows", [])
+        total = data.get("totalRows")
         total_int = total if isinstance(total, int) else None
         if not isinstance(items, list):
             logger.warning("Unexpected response format: items is not a list")
             return [], total_int
-        result = [item for item in items if isinstance(item, dict)]
-        logger.debug("Page %d: got %d items, total=%s", page, len(result), total)
-        return result, total_int
+        normalized = [
+            _normalize_activity_row(item) for item in items if isinstance(item, dict)
+        ]
+        logger.debug("Page %d: got %d items, total=%s", page, len(normalized), total)
+        return normalized, total_int
 
     @auth_retry()
     def download_fit_file(self, ride_id: int, save_path: Path) -> None:
@@ -145,13 +166,16 @@ class IGPSportClient:
         logger.debug("Downloading FIT file for ride %d", ride_id)
         ensure_dir(save_path.parent)
         response = self._session.get(
-            f"https://prod.zh.igpsport.com/service/web-gateway/web-analyze/activity/getDownloadUrl/{ride_id}",
+            f"{self.base_url}/web-gateway/web-analyze/activity/getDownloadUrl/{ride_id}",
             timeout=30,
         )
         response.raise_for_status()
-        result = cast(object, response.json(strict=False))
-        if not isinstance(result, dict):
-            raise DataSyncError(f"Unexpected FIT response for ride {ride_id}.")
+        result = _decode_json_object(response)
+        _raise_for_business_error(
+            result,
+            default_message=f"FIT download URL not available for ride {ride_id}.",
+            error_type=DataSyncError,
+        )
         fit_url = result.get("data")
         if not isinstance(fit_url, str) or not fit_url.startswith("https://"):
             raise DataSyncError(f"FIT download URL not available for ride {ride_id}.")
@@ -212,10 +236,23 @@ class IGPSportClient:
         authorization = session_data.get("authorization")
         if isinstance(authorization, str) and authorization:
             self._session.headers.update({"Authorization": authorization})
+        access_token = session_data.get("access_token")
+        if isinstance(access_token, str) and access_token:
+            self._session.headers.update({"Authorization": f"Bearer {access_token}"})
+        refresh_token = session_data.get("refresh_token")
+        if isinstance(refresh_token, str):
+            self._refresh_token = refresh_token
+        expires_at = session_data.get("expires_at")
+        if isinstance(expires_at, str):
+            self._session_expires_at = _parse_iso_datetime(expires_at)
         saved_at = payload.get("saved_at")
         if isinstance(saved_at, str):
             self._session_saved_at = _parse_iso_datetime(saved_at)
-        self._authenticated = bool(filtered_cookies or authorization)
+        self._authenticated = bool(
+            filtered_cookies
+            or authorization
+            or self._session.headers.get("Authorization")
+        )
         if self._authenticated:
             logger.debug("Session loaded successfully")
 
@@ -232,6 +269,13 @@ class IGPSportClient:
             self.username,
             cookies=requests.utils.dict_from_cookiejar(self._session.cookies),
             authorization=authorization,
+            access_token=_strip_bearer_prefix(authorization),
+            refresh_token=self._refresh_token,
+            expires_at=(
+                self._session_expires_at.isoformat()
+                if self._session_expires_at is not None
+                else ""
+            ),
         )
         payload = {
             "username": self.username,
@@ -245,6 +289,8 @@ class IGPSportClient:
     def _session_is_stale(self) -> bool:
         if not self._authenticated:
             return True
+        if self._session_expires_at is not None:
+            return datetime.now(UTC) >= self._session_expires_at - TOKEN_EXPIRY_SAFETY
         if self._session_saved_at is None:
             return True
         return datetime.now(UTC) - self._session_saved_at >= SESSION_MAX_AGE
@@ -252,9 +298,64 @@ class IGPSportClient:
 
 def _parse_iso_datetime(value: str) -> datetime | None:
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _calculate_expires_at(expires_in: object) -> datetime | None:
+    if isinstance(expires_in, bool):
+        return None
+    if isinstance(expires_in, (int, float)) and expires_in > 0:
+        return datetime.now(UTC) + timedelta(seconds=float(expires_in))
+    return None
+
+
+def _decode_json_object(response: requests.Response) -> dict[str, object]:
+    result = cast(object, response.json(strict=False))
+    if not isinstance(result, dict):
+        raise DataSyncError("Unexpected IGPSPORT response format.")
+    return result
+
+
+def _raise_for_business_error(
+    result: dict[str, object],
+    *,
+    default_message: str,
+    error_type: type[Exception] = AuthenticationError,
+) -> None:
+    code = result.get("code")
+    if code in (None, 0):
+        return
+    message = result.get("message")
+    detail = message if isinstance(message, str) and message else default_message
+    raise error_type(detail)
+
+
+def _strip_bearer_prefix(authorization: str) -> str:
+    prefix = "Bearer "
+    if authorization.startswith(prefix):
+        return authorization[len(prefix) :]
+    return ""
+
+
+def _normalize_activity_row(row: dict[str, Any]) -> dict[str, object]:
+    normalized: dict[str, object] = dict(row)
+    mappings = {
+        "rideId": "RideId",
+        "memberId": "MemberId",
+        "title": "Title",
+        "totalAscent": "TotalAscent",
+        "rideDistance": "RideDistance",
+        "startTime": "StartTime",
+    }
+    for source, target in mappings.items():
+        if target not in normalized and source in row:
+            normalized[target] = row[source]
+    return normalized
 
 
 def _looks_like_fit_file(content: bytes) -> bool:

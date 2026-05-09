@@ -78,7 +78,10 @@ class TestWindowsSessionDataStorage:
         self, tmp_path: Path
     ):
         session_data_file = tmp_path / "session_data.json"
-        session_payload = b'{"cookies":{"sessionid":"abc"},"authorization":"Bearer token"}'
+        session_payload = (
+            b'{"cookies":{"sessionid":"abc"},"authorization":"Bearer token",'
+            b'"access_token":"token","refresh_token":"refresh","expires_at":"date"}'
+        )
 
         with (
             patch("igp_ride.config.sys.platform", "win32"),
@@ -97,6 +100,9 @@ class TestWindowsSessionDataStorage:
                 "tester",
                 cookies={"sessionid": "abc"},
                 authorization="Bearer token",
+                access_token="token",
+                refresh_token="refresh",
+                expires_at="date",
             )
             payload = load_session_data("tester")
 
@@ -106,10 +112,15 @@ class TestWindowsSessionDataStorage:
             assert payload == {
                 "cookies": {"sessionid": "abc"},
                 "authorization": "Bearer token",
+                "access_token": "token",
+                "refresh_token": "refresh",
+                "expires_at": "date",
             }
             mock_set_password.assert_not_called()
 
-    def test_load_session_data_accepts_legacy_plain_file_on_windows(self, tmp_path: Path):
+    def test_load_session_data_accepts_legacy_plain_file_on_windows(
+        self, tmp_path: Path
+    ):
         session_data_file = tmp_path / "session_data.json"
         session_data_file.write_text(
             '{"cookies":{"sessionid":"abc"},"authorization":"Bearer token"}',

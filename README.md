@@ -176,10 +176,11 @@ Windows 默认目录：
 
 ## 认证与安全
 
-- 默认站点为 `https://my.igpsport.com`
+- 默认服务接口为 `https://prod.zh.igpsport.com/service`
 - 用户名和密码通过系统 keyring 保存
-- macOS 会话数据通过系统 keyring 保存
-- Windows 会话数据通过当前用户 DPAPI 加密后保存在 `%APPDATA%\igp-ride\session_data.json`
+- CLI 使用 IGPSPORT service token API 登录，并用 bearer token 访问活动接口
+- macOS bearer 会话数据通过系统 keyring 保存
+- Windows bearer 会话数据通过当前用户 DPAPI 加密后保存在 `%APPDATA%\igp-ride\session_data.json`
 - Windows 会话数据文件会尝试收紧为仅当前用户可读写
 - `session.json` 不直接保存密码
 - `logout` 只清理本地凭据和会话

@@ -23,7 +23,7 @@ class ConfigurationError(Exception):
 
 KEYRING_PASSWORD_SERVICE: Final[str] = "igp-ride"
 KEYRING_SESSION_SERVICE: Final[str] = "igp-ride-session"
-DEFAULT_BASE_URL: Final[str] = "https://my.igpsport.com"
+DEFAULT_BASE_URL: Final[str] = "https://prod.zh.igpsport.com/service"
 SESSION_DATA_PROTECTION: Final[str] = "dpapi-current-user"
 
 
@@ -118,10 +118,16 @@ def save_session_data(
     *,
     cookies: dict[str, str],
     authorization: str,
+    access_token: str = "",
+    refresh_token: str = "",
+    expires_at: str = "",
 ) -> None:
     payload = {
         "cookies": cookies,
         "authorization": authorization,
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "expires_at": expires_at,
     }
     if sys.platform == "win32":
         _save_session_data_file(payload)
@@ -189,7 +195,7 @@ def _load_session_data_file() -> dict[str, object]:
     try:
         encrypted = base64.b64decode(encoded)
         decoded = json.loads(_unprotect_with_dpapi(encrypted).decode("utf-8"))
-    except (OSError, ValueError, json.JSONDecodeError):
+    except OSError, ValueError, json.JSONDecodeError:
         return {}
     return decoded if isinstance(decoded, dict) else {}
 
