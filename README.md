@@ -110,13 +110,28 @@ igp-ride stats --by year
 
 ### 5. 同步到 Intervals.icu
 
-先在 Intervals.icu 设置页创建个人 API key，然后通过环境变量传给 CLI：
+先在 Intervals.icu 设置页创建个人 API key，然后保存到本地配置：
 
 ```bash
-export IGP_RIDE_ICU_API_KEY=<你的 Intervals.icu API key>
+igp-ride icu configure --athlete-id i123456
+```
 
-# 可选；默认使用 0，表示使用 API key 所属 athlete
-export IGP_RIDE_ICU_ATHLETE_ID=0
+也可以直接通过参数传入 API key：
+
+```bash
+igp-ride icu configure --api-key <你的 Intervals.icu API key> --athlete-id i123456
+```
+
+查看当前 Intervals.icu 配置与认证状态：
+
+```bash
+igp-ride icu status
+```
+
+清除本地保存的 Intervals.icu 配置：
+
+```bash
+igp-ride icu clear
 ```
 
 先 dry-run 查看会同步哪些本地 FIT 活动：
@@ -140,6 +155,9 @@ igp-ride icu sync --retry-failed
 
 说明：
 
+- API key 会保存到系统 keyring
+- Athlete ID 和 API base URL 会保存到配置文件 `icu.json`
+- 环境变量仍然优先于本地保存的配置：`IGP_RIDE_ICU_API_KEY`、`IGP_RIDE_ICU_ATHLETE_ID`、`IGP_RIDE_ICU_BASE_URL`
 - 只会同步本地数据库里 `fit_file_status=downloaded` 的活动
 - 上传时使用 `external_id=igp-<ride_id>`，用于避免重复上传
 - 如果 Intervals.icu 里已经有相同 `external_id` 的活动，本地会标记为已同步
