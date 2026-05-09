@@ -1,6 +1,6 @@
 ---
 name: igp-ride-cli
-description: 使用 igp-ride 命令行安装、登录并同步 IGPSPORT/iGPSPORT 骑行记录到本地 SQLite，同时下载或修复 FIT 文件、查看活动详情、统计骑行数据、启停后台同步守护进程。只要用户提到 IGPSPORT 骑行记录同步、FIT 导出、本地备份骑行活动、查看最近一次骑行、月度/年度骑行统计、后台自动同步或守护进程，就应该使用这个技能，即使用户没有明确说“igp-ride”。
+description: 使用 igp-ride 命令行安装、登录并同步 IGPSPORT/iGPSPORT 骑行记录到本地 SQLite，同时下载或修复 FIT 文件、查看活动详情、统计骑行数据、启停后台同步守护进程、将本地 FIT 活动上传同步到 Intervals.icu。只要用户提到 IGPSPORT 骑行记录同步、FIT 导出、本地备份骑行活动、查看最近一次骑行、月度/年度骑行统计、后台自动同步、守护进程或同步到 Intervals.icu/ICU，就应该使用这个技能，即使用户没有明确说“igp-ride”。
 ---
 
 # igp-ride CLI 技能
@@ -28,6 +28,7 @@ description: 使用 igp-ride 命令行安装、登录并同步 IGPSPORT/iGPSPORT
 - 查看最近一次或指定活动的详细指标
 - 输出按月或按年的骑行统计
 - 开启、查看或停止后台自动同步守护进程
+- 将本地 FIT 活动上传同步到 Intervals.icu
 - 排查认证失败、网络失败、缺失本地数据等问题
 
 ## 平台支持边界
@@ -183,7 +184,37 @@ igp-ride stats --update
 - 按活动标题过滤，例如 `户外骑行`
 - 如果使用 `--update`，同样要求本地已有可用登录凭据
 
-### 5. 守护进程
+### 5. 同步到 Intervals.icu
+
+```bash
+igp-ride icu configure --athlete-id i123456
+igp-ride icu configure --api-key <API_KEY> --athlete-id i123456
+igp-ride icu status
+igp-ride icu clear
+igp-ride icu sync --dry-run
+igp-ride icu sync
+igp-ride icu sync --since 2026-01-01
+igp-ride icu sync --retry-failed
+```
+
+使用规则：
+
+- 先在 Intervals.icu 设置页创建个人 API key，然后用 `igp-ride icu configure` 保存
+- `igp-ride icu status` 可查看当前配置与认证状态
+- 正式上传前先用 `--dry-run` 确认会同步哪些活动
+- `--since` 指定起始日期，`--retry-failed` 重试之前失败的活动
+- `igp-ride icu clear` 清除本地保存的 ICU 配置
+
+同步逻辑要点：
+
+- API key 保存到系统 keyring；Athlete ID 和 base URL 保存到配置文件 `icu.json`
+- 环境变量优先于本地配置：`IGP_RIDE_ICU_API_KEY`、`IGP_RIDE_ICU_ATHLETE_ID`、`IGP_RIDE_ICU_BASE_URL`
+- 只会同步本地数据库里 `fit_file_status=downloaded` 的活动
+- 上传时使用 `external_id=igp-<ride_id>`，用于避免重复上传
+- 如果 ICU 里已有相同 `external_id` 的活动，本地会直接标记为已同步
+- 默认不会在 `igp-ride update` 后自动上传，避免意外推送到远端
+
+### 6. 守护进程
 
 ```bash
 igp-ride daemon start --interval 30m
@@ -272,8 +303,17 @@ CLI 输出是结构化文本，优先提炼这些字段：
 
 ### 修复缺失 FIT
 
-1. 仅在用户提到“缺少 FIT”“FIT 损坏”“历史记录有条目但没有文件”时用 `igp-ride update --repair`
+1. 仅在用户提到"缺少 FIT""FIT 损坏""历史记录有条目但没有文件"时用 `igp-ride update --repair`
 2. 说明它只重试缺失或无效 FIT，不会强制全量重拉所有活动
+
+### 同步到 Intervals.icu
+
+1. 先检查用户是否已配置 ICU：`igp-ride icu status`
+2. 未配置时引导执行 `igp-ride icu configure`
+3. 用 `--dry-run` 预览待同步活动
+4. 确认后执行 `igp-ride icu sync`
+5. 如有失败活动，可用 `--retry-failed` 重试
+6. 回答时优先总结 candidates、uploaded、already_remote、skipped、failed 数量
 
 ## 回答要求
 
@@ -293,3 +333,6 @@ CLI 输出是结构化文本，优先提炼这些字段：
 - “我想把缺失的 FIT 文件补下来”
 - “每 30 分钟自动同步一次，有新活动就执行脚本”
 - “按月份统计我今年的户外骑行”
+- “把本地骑行记录上传到 Intervals.icu”
+- “看看 ICU 同步状态，哪些还没同步”
+- “重试之前同步失败的活动”
