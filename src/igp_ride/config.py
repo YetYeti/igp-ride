@@ -24,6 +24,7 @@ class ConfigurationError(Exception):
 KEYRING_PASSWORD_SERVICE: Final[str] = "igp-ride"
 KEYRING_SESSION_SERVICE: Final[str] = "igp-ride-session"
 DEFAULT_BASE_URL: Final[str] = "https://prod.zh.igpsport.com/service"
+DEFAULT_ICU_BASE_URL: Final[str] = "https://intervals.icu/api/v1"
 SESSION_DATA_PROTECTION: Final[str] = "dpapi-current-user"
 
 
@@ -60,6 +61,9 @@ class AppConfig:
     fit_dir: Path = field(default_factory=get_default_fit_dir)
     session_file: Path = field(default_factory=get_default_session_file)
     db_path: Path = field(default_factory=get_default_db_file)
+    icu_api_key: str = ""
+    icu_athlete_id: str = "0"
+    icu_base_url: str = DEFAULT_ICU_BASE_URL
 
     @classmethod
     def load(cls, require_credentials: bool = False) -> "AppConfig":
@@ -72,7 +76,23 @@ class AppConfig:
             os.getenv("IGP_PASSWORD"),
             _load_password(username),
         )
-        config = cls(username=username, password=password)
+        config = cls(
+            username=username,
+            password=password,
+            icu_api_key=_first_non_empty(
+                os.getenv("IGP_RIDE_ICU_API_KEY"),
+                os.getenv("INTERVALS_ICU_API_KEY"),
+            ),
+            icu_athlete_id=_first_non_empty(
+                os.getenv("IGP_RIDE_ICU_ATHLETE_ID"),
+                os.getenv("INTERVALS_ICU_ATHLETE_ID"),
+                "0",
+            ),
+            icu_base_url=_first_non_empty(
+                os.getenv("IGP_RIDE_ICU_BASE_URL"),
+                DEFAULT_ICU_BASE_URL,
+            ),
+        )
         if require_credentials and (not config.username or not config.password):
             raise ConfigurationError("Missing credentials. Run `igp-ride login` first.")
         return config

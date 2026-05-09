@@ -34,6 +34,11 @@ class Activity:
     training_stress_score: float = 0.0
     fit_file_path: str = ""
     fit_file_status: str = "missing"
+    icu_activity_id: str = ""
+    icu_external_id: str = ""
+    icu_synced_at: datetime | None = None
+    icu_sync_status: str = "pending"
+    icu_sync_error: str = ""
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

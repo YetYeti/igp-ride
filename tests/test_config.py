@@ -8,6 +8,7 @@ from keyring.errors import KeyringError
 from igp_ride.config import (
     AppConfig,
     DEFAULT_BASE_URL,
+    DEFAULT_ICU_BASE_URL,
     delete_session_data,
     get_default_config_dir,
     get_default_data_dir,
@@ -42,6 +43,39 @@ class TestAppConfig:
 
         assert config.username == "tester"
         assert config.password == ""
+
+    def test_load_reads_icu_settings_from_environment(self, monkeypatch):
+        monkeypatch.setenv("INTERVALS_ICU_API_KEY", "icu-key")
+        monkeypatch.setenv("INTERVALS_ICU_ATHLETE_ID", "i123456")
+
+        with (
+            patch("igp_ride.config.ensure_runtime_dirs"),
+            patch("igp_ride.config._read_session_username", return_value=None),
+            patch("igp_ride.config.keyring.get_password", return_value=None),
+        ):
+            config = AppConfig.load()
+
+        assert config.icu_api_key == "icu-key"
+        assert config.icu_athlete_id == "i123456"
+        assert config.icu_base_url == DEFAULT_ICU_BASE_URL
+
+    def test_load_prefers_igp_ride_icu_environment(self, monkeypatch):
+        monkeypatch.setenv("INTERVALS_ICU_API_KEY", "intervals-key")
+        monkeypatch.setenv("INTERVALS_ICU_ATHLETE_ID", "i123456")
+        monkeypatch.setenv("IGP_RIDE_ICU_API_KEY", "igp-key")
+        monkeypatch.setenv("IGP_RIDE_ICU_ATHLETE_ID", "0")
+        monkeypatch.setenv("IGP_RIDE_ICU_BASE_URL", "https://icu.example/api")
+
+        with (
+            patch("igp_ride.config.ensure_runtime_dirs"),
+            patch("igp_ride.config._read_session_username", return_value=None),
+            patch("igp_ride.config.keyring.get_password", return_value=None),
+        ):
+            config = AppConfig.load()
+
+        assert config.icu_api_key == "igp-key"
+        assert config.icu_athlete_id == "0"
+        assert config.icu_base_url == "https://icu.example/api"
 
 
 class TestDefaultPaths:

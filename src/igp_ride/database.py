@@ -102,6 +102,76 @@ class ActivityDatabase:
         )
         return [self._row_to_activity(row) for row in cursor.fetchall()]
 
+    def get_activities_pending_icu_sync(
+        self,
+        *,
+        since: date | None = None,
+        include_failed: bool = False,
+    ) -> list[Activity]:
+        query = """
+            SELECT * FROM activities
+            WHERE fit_file_status = 'downloaded'
+              AND icu_activity_id = ''
+              AND (icu_sync_status = 'pending'
+        """
+        params: list[object] = []
+        if include_failed:
+            query += " OR icu_sync_status = 'failed'"
+        query += ")"
+        if since is not None:
+            query += " AND date(start_time) >= ?"
+            params.append(since.isoformat())
+        query += " ORDER BY start_time ASC, ride_id ASC"
+
+        cursor = self._get_connection().cursor()
+        cursor.execute(query, tuple(params))
+        return [self._row_to_activity(row) for row in cursor.fetchall()]
+
+    def mark_icu_synced(
+        self,
+        ride_id: int,
+        *,
+        icu_activity_id: str,
+        icu_external_id: str,
+        synced_at: datetime,
+    ) -> None:
+        cursor = self._get_connection().cursor()
+        cursor.execute(
+            """
+            UPDATE activities
+            SET icu_activity_id = ?,
+                icu_external_id = ?,
+                icu_synced_at = ?,
+                icu_sync_status = 'synced',
+                icu_sync_error = '',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE ride_id = ?
+            """,
+            (icu_activity_id, icu_external_id, _to_iso(synced_at), ride_id),
+        )
+        self._get_connection().commit()
+
+    def mark_icu_sync_failed(
+        self,
+        ride_id: int,
+        *,
+        icu_external_id: str,
+        error: str,
+    ) -> None:
+        cursor = self._get_connection().cursor()
+        cursor.execute(
+            """
+            UPDATE activities
+            SET icu_external_id = ?,
+                icu_sync_status = 'failed',
+                icu_sync_error = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE ride_id = ?
+            """,
+            (icu_external_id, error, ride_id),
+        )
+        self._get_connection().commit()
+
     def get_stats(
         self,
         *,
@@ -268,10 +338,24 @@ class ActivityDatabase:
                 training_stress_score REAL,
                 fit_file_path TEXT NOT NULL,
                 fit_file_status TEXT NOT NULL DEFAULT 'missing',
+                icu_activity_id TEXT NOT NULL DEFAULT '',
+                icu_external_id TEXT NOT NULL DEFAULT '',
+                icu_synced_at TEXT,
+                icu_sync_status TEXT NOT NULL DEFAULT 'pending',
+                icu_sync_error TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
             """
+        )
+        self._ensure_activity_columns(
+            {
+                "icu_activity_id": "TEXT NOT NULL DEFAULT ''",
+                "icu_external_id": "TEXT NOT NULL DEFAULT ''",
+                "icu_synced_at": "TEXT",
+                "icu_sync_status": "TEXT NOT NULL DEFAULT 'pending'",
+                "icu_sync_error": "TEXT NOT NULL DEFAULT ''",
+            }
         )
         cursor.execute(
             """
@@ -282,6 +366,14 @@ class ActivityDatabase:
             """
         )
         self._get_connection().commit()
+
+    def _ensure_activity_columns(self, columns: dict[str, str]) -> None:
+        cursor = self._get_connection().cursor()
+        cursor.execute("PRAGMA table_info(activities)")
+        existing = {str(row["name"]) for row in cursor.fetchall()}
+        for name, definition in columns.items():
+            if name not in existing:
+                cursor.execute(f"ALTER TABLE activities ADD COLUMN {name} {definition}")
 
     def get_sync_meta(self, key: str) -> str | None:
         cursor = self._get_connection().cursor()
@@ -333,6 +425,11 @@ class ActivityDatabase:
             training_stress_score=row["training_stress_score"] or 0.0,
             fit_file_path=row["fit_file_path"],
             fit_file_status=row["fit_file_status"],
+            icu_activity_id=row["icu_activity_id"],
+            icu_external_id=row["icu_external_id"],
+            icu_synced_at=_from_iso(row["icu_synced_at"]),
+            icu_sync_status=row["icu_sync_status"],
+            icu_sync_error=row["icu_sync_error"],
             created_at=_from_iso(row["created_at"]),
             updated_at=_from_iso(row["updated_at"]),
         )

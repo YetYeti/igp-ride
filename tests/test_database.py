@@ -137,6 +137,51 @@ class TestActivityDatabase:
         assert db.get_sync_meta("last_sync_time") == "2026-03-30T10:00:00+00:00"
         db.close()
 
+    def test_icu_sync_status_defaults_to_pending(self, tmp_path: Path):
+        db = ActivityDatabase(tmp_path / "test.db")
+        db.upsert(_make_activity(ride_id=1))
+
+        activity = db.get_by_ride_id(1)
+
+        assert activity is not None
+        assert activity.icu_activity_id == ""
+        assert activity.icu_external_id == ""
+        assert activity.icu_synced_at is None
+        assert activity.icu_sync_status == "pending"
+        assert activity.icu_sync_error == ""
+        db.close()
+
+    def test_get_activities_pending_icu_sync(self, tmp_path: Path):
+        db = ActivityDatabase(tmp_path / "test.db")
+        db.upsert(_make_activity(ride_id=1, fit_file_status="downloaded"))
+        db.upsert(_make_activity(ride_id=2, fit_file_status="missing"))
+        db.upsert(_make_activity(ride_id=3, fit_file_status="downloaded"))
+        db.mark_icu_synced(
+            3,
+            icu_activity_id="icu-3",
+            icu_external_id="igp-3",
+            synced_at=datetime(2026, 3, 1, 12, 0, 0),
+        )
+
+        pending = db.get_activities_pending_icu_sync()
+
+        assert [activity.ride_id for activity in pending] == [1]
+        db.close()
+
+    def test_mark_icu_sync_failed_can_be_retried_when_requested(self, tmp_path: Path):
+        db = ActivityDatabase(tmp_path / "test.db")
+        db.upsert(_make_activity(ride_id=1, fit_file_status="downloaded"))
+        db.mark_icu_sync_failed(1, icu_external_id="igp-1", error="upload failed")
+
+        assert db.get_activities_pending_icu_sync() == []
+        pending = db.get_activities_pending_icu_sync(include_failed=True)
+
+        assert [activity.ride_id for activity in pending] == [1]
+        assert pending[0].icu_external_id == "igp-1"
+        assert pending[0].icu_sync_status == "failed"
+        assert pending[0].icu_sync_error == "upload failed"
+        db.close()
+
     def test_get_by_ride_id_not_found(self, tmp_path: Path):
         db = ActivityDatabase(tmp_path / "test.db")
         assert db.get_by_ride_id(999) is None
