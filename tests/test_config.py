@@ -9,13 +9,16 @@ from igp_ride.config import (
     AppConfig,
     DEFAULT_BASE_URL,
     DEFAULT_ICU_BASE_URL,
+    clear_icu_config,
     delete_session_data,
     get_default_config_dir,
     get_default_data_dir,
     get_default_db_file,
     get_default_fit_dir,
+    get_default_icu_config_file,
     get_default_session_file,
     load_session_data,
+    save_icu_config,
     save_session_data,
 )
 
@@ -58,6 +61,26 @@ class TestAppConfig:
         assert config.icu_api_key == "icu-key"
         assert config.icu_athlete_id == "i123456"
         assert config.icu_base_url == DEFAULT_ICU_BASE_URL
+
+    def test_load_reads_icu_settings_from_keyring_and_file(self, tmp_path: Path):
+        icu_config_file = tmp_path / "icu.json"
+        icu_config_file.write_text(
+            '{"athlete_id": "i123456", "base_url": "https://icu.example/api"}',
+            encoding="utf-8",
+        )
+
+        with (
+            patch("igp_ride.config.ensure_runtime_dirs"),
+            patch("igp_ride.config._read_session_username", return_value=None),
+            patch("igp_ride.config._load_password", return_value=None),
+            patch("igp_ride.config.get_default_icu_config_file", return_value=icu_config_file),
+            patch("igp_ride.config.load_icu_api_key", return_value="stored-key"),
+        ):
+            config = AppConfig.load()
+
+        assert config.icu_api_key == "stored-key"
+        assert config.icu_athlete_id == "i123456"
+        assert config.icu_base_url == "https://icu.example/api"
 
     def test_load_prefers_igp_ride_icu_environment(self, monkeypatch):
         monkeypatch.setenv("INTERVALS_ICU_API_KEY", "intervals-key")
@@ -102,9 +125,45 @@ class TestDefaultPaths:
             assert get_default_session_file() == Path(
                 "C:/Users/demo/AppData/Roaming/igp-ride/session.json"
             )
+            assert get_default_icu_config_file() == Path(
+                "C:/Users/demo/AppData/Roaming/igp-ride/icu.json"
+            )
             assert get_default_db_file() == Path(
                 "C:/Users/demo/AppData/Local/igp-ride/rides.db"
             )
+
+
+class TestIcuConfigStorage:
+    def test_save_icu_config_writes_non_secret_settings_to_file(self, tmp_path: Path):
+        icu_config_file = tmp_path / "icu.json"
+
+        with (
+            patch("igp_ride.config.get_default_icu_config_file", return_value=icu_config_file),
+            patch("igp_ride.config.keyring.set_password") as mock_set_password,
+        ):
+            saved_path = save_icu_config(
+                api_key="secret",
+                athlete_id="i123456",
+                base_url="https://icu.example/api",
+            )
+
+        assert saved_path == icu_config_file
+        assert "secret" not in icu_config_file.read_text(encoding="utf-8")
+        assert '"athlete_id": "i123456"' in icu_config_file.read_text(encoding="utf-8")
+        mock_set_password.assert_called_once()
+
+    def test_clear_icu_config_removes_keyring_secret_and_file(self, tmp_path: Path):
+        icu_config_file = tmp_path / "icu.json"
+        icu_config_file.write_text("{}", encoding="utf-8")
+
+        with (
+            patch("igp_ride.config.get_default_icu_config_file", return_value=icu_config_file),
+            patch("igp_ride.config.keyring.delete_password") as mock_delete_password,
+        ):
+            clear_icu_config()
+
+        assert not icu_config_file.exists()
+        mock_delete_password.assert_called_once()
 
 
 class TestWindowsSessionDataStorage:
