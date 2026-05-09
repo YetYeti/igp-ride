@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -47,7 +47,10 @@ class IntervalsIcuClient:
             f"{self.base_url}/athlete/{self.athlete_id}",
             timeout=self.timeout,
         )
-        return _decode_json_response(response)
+        payload = _decode_json_response(response)
+        if not isinstance(payload, dict):
+            raise ICUClientError("Intervals.icu returned an unexpected athlete response.")
+        return cast(dict[str, Any], payload)
 
     def list_activities(
         self,
