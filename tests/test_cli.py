@@ -185,6 +185,117 @@ class TestUpdateOutput:
 
 
 class TestIcuOutput:
+    def test_main_routes_icu_configure_options(self):
+        with patch("igp_ride.cli.cmd_icu_configure", return_value=0) as cmd:
+            exit_code = main(
+                [
+                    "icu",
+                    "configure",
+                    "--api-key",
+                    "secret",
+                    "--athlete-id",
+                    "i123456",
+                    "--base-url",
+                    "https://icu.example/api",
+                ]
+            )
+
+        assert exit_code == 0
+        cmd.assert_called_once_with(
+            "secret",
+            "i123456",
+            "https://icu.example/api",
+        )
+
+    def test_icu_configure_saves_config_without_printing_key(
+        self, tmp_path: Path, capsys
+    ):
+        config_file = tmp_path / "icu.json"
+
+        with patch("igp_ride.cli.save_icu_config", return_value=config_file) as save:
+            from igp_ride.cli import cmd_icu_configure
+
+            exit_code = cmd_icu_configure("secret", "i123456", "https://icu.example/api")
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        save.assert_called_once_with(
+            api_key="secret",
+            athlete_id="i123456",
+            base_url="https://icu.example/api",
+        )
+        assert "secret" not in captured.out
+        assert "== ICU Configure ==" in captured.out
+        assert "Athlete ID: i123456" in captured.out
+        assert "Next: igp-ride icu status" in captured.out
+
+    def test_icu_clear_removes_config(self, capsys):
+        from igp_ride.cli import cmd_icu_clear
+
+        with patch("igp_ride.cli.clear_icu_config") as clear:
+            exit_code = cmd_icu_clear()
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        clear.assert_called_once()
+        assert "== ICU Clear ==" in captured.out
+        assert "Configured: no" in captured.out
+
+    def test_icu_status_without_key_prints_not_configured(self, tmp_path: Path, capsys):
+        from igp_ride.cli import cmd_icu_status
+
+        config = _make_config(tmp_path)
+
+        with patch("igp_ride.cli.AppConfig.load", return_value=config):
+            exit_code = cmd_icu_status()
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        assert "== ICU Status ==" in captured.out
+        assert "Configured: no" in captured.out
+        assert "Authenticated: no" in captured.out
+        assert "Tip: Run igp-ride icu configure" in captured.out
+
+    def test_icu_status_checks_remote_athlete(self, tmp_path: Path, capsys):
+        from igp_ride.cli import cmd_icu_status
+
+        config = _make_config(tmp_path)
+        config = AppConfig(
+            username=config.username,
+            password=config.password,
+            data_dir=config.data_dir,
+            fit_dir=config.fit_dir,
+            session_file=config.session_file,
+            db_path=config.db_path,
+            icu_api_key="secret",
+            icu_athlete_id="i123456",
+            icu_base_url="https://icu.example/api",
+        )
+
+        with (
+            patch("igp_ride.cli.AppConfig.load", return_value=config),
+            patch("igp_ride.cli.IntervalsIcuClient") as MockClient,
+        ):
+            mock_client = MockClient.return_value
+            mock_client.get_athlete.return_value = {
+                "id": "i123456",
+                "name": "Tester",
+            }
+            exit_code = cmd_icu_status()
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        MockClient.assert_called_once_with(
+            api_key="secret",
+            athlete_id="i123456",
+            base_url="https://icu.example/api",
+        )
+        assert "Configured: yes" in captured.out
+        assert "Authenticated: yes" in captured.out
+        assert "Remote Athlete ID: i123456" in captured.out
+        assert "Name: Tester" in captured.out
+        mock_client.close.assert_called_once()
+
     def test_main_routes_icu_sync_options(self):
         with patch("igp_ride.cli.cmd_icu_sync", return_value=0) as cmd:
             exit_code = main(
