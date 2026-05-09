@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Final, Sequence, TextIO
@@ -23,7 +23,7 @@ from igp_ride.daemon import (
 )
 from igp_ride.database import ActivitySortKey, DatabaseError
 from igp_ride.models import Activity, PeriodStats, SyncSummary
-from igp_ride.service import ResetResult, RideSyncService, SyncProgress
+from igp_ride.service import IcuSyncSummary, ResetResult, RideSyncService, SyncProgress
 from igp_ride.utils import setup_logging
 
 
@@ -129,6 +129,31 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_subparsers.add_parser("stop", help="Stop and unload the background sync")
     daemon_subparsers.add_parser("status", help="Show background sync status")
 
+    icu_parser = subparsers.add_parser(
+        "icu",
+        help="Sync local FIT activities to Intervals.icu",
+    )
+    icu_subparsers = icu_parser.add_subparsers(dest="icu_command", required=True)
+    icu_sync_parser = icu_subparsers.add_parser(
+        "sync",
+        help="Upload local downloaded FIT files to Intervals.icu",
+    )
+    icu_sync_parser.add_argument(
+        "--since",
+        type=_parse_date_arg,
+        help="Only sync activities on or after YYYY-MM-DD",
+    )
+    icu_sync_parser.add_argument(
+        "--retry-failed",
+        action="store_true",
+        help="Retry activities that previously failed to upload",
+    )
+    icu_sync_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be synced without uploading or changing local state",
+    )
+
     list_parser = subparsers.add_parser("list", help="List local activities")
     list_parser.add_argument("--limit", type=int, help="Show at most N activities")
     list_parser.add_argument(
@@ -199,6 +224,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return cmd_update(args.all, args.progress, args.repair)
         if args.command == "daemon":
             return cmd_daemon(args)
+        if args.command == "icu":
+            return cmd_icu(args)
         if args.command == "list":
             return cmd_list(
                 args.limit,
@@ -372,6 +399,39 @@ def cmd_daemon(args: argparse.Namespace) -> int:
     if args.daemon_command == "status":
         return cmd_daemon_status()
     raise ValueError(f"Unknown daemon command: {args.daemon_command}")
+
+
+def cmd_icu(args: argparse.Namespace) -> int:
+    if args.icu_command == "sync":
+        return cmd_icu_sync(args.since, args.retry_failed, args.dry_run)
+    raise ValueError(f"Unknown icu command: {args.icu_command}")
+
+
+def cmd_icu_sync(
+    since: date | None,
+    retry_failed: bool,
+    dry_run: bool,
+) -> int:
+    config = AppConfig.load()
+    service = RideSyncService(config)
+    try:
+        summary = service.sync_icu(
+            since=since,
+            include_failed=retry_failed,
+            dry_run=dry_run,
+        )
+    finally:
+        service.close()
+
+    _print_title("ICU Sync")
+    _print_result("success")
+    _print_field("Mode", "dry-run" if dry_run else "upload")
+    if since is not None:
+        _print_field("Since", since.isoformat())
+    _print_icu_sync_summary(summary)
+    if dry_run:
+        _print_next("igp-ride icu sync")
+    return 0
 
 
 def cmd_daemon_start(interval: str, hook_command: str | None) -> int:
@@ -784,6 +844,7 @@ def _command_title(args: argparse.Namespace) -> str:
         "daemon": daemon_titles.get(
             _as_str_state(getattr(args, "daemon_command", "")), "Daemon"
         ),
+        "icu": "ICU Sync",
         "list": "Activity List",
         "show": "Activity Details",
         "stats": "Ride Statistics",
@@ -882,6 +943,28 @@ def _print_sync_summary(summary: SyncSummary) -> None:
             ("fit_failed", summary.fit_files_failed),
         ]
     )
+
+
+def _print_icu_sync_summary(summary: IcuSyncSummary) -> None:
+    _print_summary(
+        [
+            ("candidates", summary.candidates),
+            ("uploaded", summary.uploaded),
+            ("already_remote", summary.already_remote),
+            ("skipped", summary.skipped),
+            ("failed", summary.failed),
+            ("dry_run", summary.dry_run),
+        ]
+    )
+
+
+def _parse_date_arg(value: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"expected YYYY-MM-DD date, got {value!r}"
+        ) from exc
 
 
 def _summary_items_from_state(state: dict[str, object]) -> list[tuple[str, object]]:

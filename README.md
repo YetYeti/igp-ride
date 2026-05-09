@@ -10,6 +10,7 @@
 - 下载或修复缺失、损坏的 FIT 文件
 - 查看活动列表与活动详情
 - 生成按月或按年的骑行统计
+- 将本地已下载的 FIT 活动上传同步到 Intervals.icu
 - 在 macOS 下以守护进程方式定时同步
 
 ## 平台支持
@@ -106,6 +107,43 @@ igp-ride stats
 ```bash
 igp-ride stats --by year
 ```
+
+### 5. 同步到 Intervals.icu
+
+先在 Intervals.icu 设置页创建个人 API key，然后通过环境变量传给 CLI：
+
+```bash
+export IGP_RIDE_ICU_API_KEY=<你的 Intervals.icu API key>
+
+# 可选；默认使用 0，表示使用 API key 所属 athlete
+export IGP_RIDE_ICU_ATHLETE_ID=0
+```
+
+先 dry-run 查看会同步哪些本地 FIT 活动：
+
+```bash
+igp-ride icu sync --dry-run
+```
+
+确认后正式上传：
+
+```bash
+igp-ride icu sync
+```
+
+常用选项：
+
+```bash
+igp-ride icu sync --since 2026-01-01
+igp-ride icu sync --retry-failed
+```
+
+说明：
+
+- 只会同步本地数据库里 `fit_file_status=downloaded` 的活动
+- 上传时使用 `external_id=igp-<ride_id>`，用于避免重复上传
+- 如果 Intervals.icu 里已经有相同 `external_id` 的活动，本地会标记为已同步
+- 默认不会在 `igp-ride update` 后自动上传，避免意外把本地数据推到远端
 
 ## 守护进程模式
 

@@ -6,10 +6,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from igp_ride.cli import cmd_list, cmd_show, cmd_stats, cmd_update, main
+from igp_ride.cli import cmd_icu_sync, cmd_list, cmd_show, cmd_stats, cmd_update, main
 from igp_ride.config import AppConfig, ConfigurationError
 from igp_ride.models import Activity, PeriodStats, SyncSummary
-from igp_ride.service import SyncProgress
+from igp_ride.service import IcuSyncSummary, SyncProgress
 
 
 def _make_config(tmp_path: Path) -> AppConfig:
@@ -182,6 +182,76 @@ class TestUpdateOutput:
             "Summary: remote=57 new=1 updated=3 skipped=53 fit_failed=0" in captured.out
         )
         assert "Next: igp-ride list" in captured.out
+
+
+class TestIcuOutput:
+    def test_main_routes_icu_sync_options(self):
+        with patch("igp_ride.cli.cmd_icu_sync", return_value=0) as cmd:
+            exit_code = main(
+                [
+                    "icu",
+                    "sync",
+                    "--since",
+                    "2026-05-01",
+                    "--retry-failed",
+                    "--dry-run",
+                ]
+            )
+
+        assert exit_code == 0
+        assert cmd.call_args.args[0].isoformat() == "2026-05-01"
+        assert cmd.call_args.args[1:] == (True, True)
+
+    def test_icu_sync_prints_summary(self, tmp_path: Path, capsys):
+        config = _make_config(tmp_path)
+        service = MagicMock()
+        service.sync_icu.return_value = IcuSyncSummary(
+            candidates=3,
+            uploaded=2,
+            already_remote=1,
+        )
+
+        with (
+            patch("igp_ride.cli.AppConfig.load", return_value=config),
+            patch("igp_ride.cli.RideSyncService", return_value=service),
+        ):
+            exit_code = cmd_icu_sync(None, False, False)
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        assert "== ICU Sync ==" in captured.out
+        assert "Mode: upload" in captured.out
+        assert (
+            "Summary: candidates=3 uploaded=2 already_remote=1 skipped=0 "
+            "failed=0 dry_run=no"
+        ) in captured.out
+        service.sync_icu.assert_called_once_with(
+            since=None,
+            include_failed=False,
+            dry_run=False,
+        )
+        assert service.close.called
+
+    def test_icu_sync_dry_run_prints_next_command(self, tmp_path: Path, capsys):
+        config = _make_config(tmp_path)
+        service = MagicMock()
+        service.sync_icu.return_value = IcuSyncSummary(
+            candidates=1,
+            skipped=1,
+            dry_run=True,
+        )
+
+        with (
+            patch("igp_ride.cli.AppConfig.load", return_value=config),
+            patch("igp_ride.cli.RideSyncService", return_value=service),
+        ):
+            exit_code = cmd_icu_sync(None, False, True)
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        assert "Mode: dry-run" in captured.out
+        assert "dry_run=yes" in captured.out
+        assert "Next: igp-ride icu sync" in captured.out
 
 
 class TestListOutput:
