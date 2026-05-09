@@ -5,13 +5,16 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from igp_ride.service import (
+    IcuSyncSummary,
     RideSyncService,
     SyncProgress,
     _as_float,
     _as_int,
     _as_str,
     _calculate_fetch_limits,
+    build_icu_external_id,
 )
+from igp_ride.models import Activity
 from igp_ride.parser import FitParseError
 
 
@@ -94,6 +97,170 @@ class TestCalculateFetchLimits:
         page_size, max_pages = _calculate_fetch_limits(None)
         assert page_size == 200
         assert max_pages == 1000
+
+
+def _icu_config(tmp_path: Path) -> MagicMock:
+    config = MagicMock()
+    config.db_path = ":memory:"
+    config.fit_dir = tmp_path / "fit"
+    config.username = "test"
+    config.password = "test"
+    config.base_url = "https://example.com"
+    config.session_file = tmp_path / "session.json"
+    config.icu_api_key = "icu-key"
+    config.icu_athlete_id = "0"
+    config.icu_base_url = "https://icu.example/api"
+    return config
+
+
+def _activity(ride_id: int, fit_path: Path, **overrides) -> Activity:
+    defaults = dict(
+        ride_id=ride_id,
+        member_id=1,
+        title="Test Ride",
+        sport="cycling",
+        sub_sport="road",
+        start_time=datetime(2026, 5, 1, 8, 0, 0),
+        fit_file_path=str(fit_path),
+        fit_file_status="downloaded",
+    )
+    defaults.update(overrides)
+    return Activity(**defaults)
+
+
+class TestIcuSync:
+    def test_build_icu_external_id(self):
+        assert build_icu_external_id(123) == "igp-123"
+
+    def test_icu_sync_requires_api_key(self, tmp_path: Path):
+        config = _icu_config(tmp_path)
+        config.icu_api_key = ""
+
+        with (
+            patch("igp_ride.service.IGPSportClient"),
+            patch("igp_ride.service.ActivityDatabase"),
+        ):
+            service = RideSyncService(config)
+
+            try:
+                service.sync_icu()
+            except ValueError as exc:
+                assert "Missing Intervals.icu API key" in str(exc)
+            else:
+                raise AssertionError("Expected ValueError")
+
+    def test_icu_sync_uploads_pending_fit(self, tmp_path: Path):
+        config = _icu_config(tmp_path)
+        fit_path = tmp_path / "fit" / "1.fit"
+        fit_path.parent.mkdir()
+        fit_path.write_bytes(b"fit-data")
+        activity = _activity(1, fit_path)
+
+        with (
+            patch("igp_ride.service.IGPSportClient"),
+            patch("igp_ride.service.ActivityDatabase") as MockDB,
+            patch("igp_ride.service.IntervalsIcuClient") as MockIcuClient,
+        ):
+            mock_db = MockDB.return_value
+            mock_db.get_activities_pending_icu_sync.return_value = [activity]
+            mock_icu = MockIcuClient.return_value
+            mock_icu.list_activities.return_value = []
+            mock_icu.upload_activity_file.return_value = "icu-1"
+
+            service = RideSyncService(config)
+            summary = service.sync_icu()
+
+        assert summary == IcuSyncSummary(candidates=1, uploaded=1)
+        MockIcuClient.assert_called_once_with(
+            api_key="icu-key",
+            athlete_id="0",
+            base_url="https://icu.example/api",
+        )
+        mock_icu.list_activities.assert_called_once_with(oldest="2026-05-01")
+        mock_icu.upload_activity_file.assert_called_once_with(
+            fit_path,
+            external_id="igp-1",
+            name="Test Ride",
+            description="Uploaded by igp-ride",
+        )
+        mock_db.mark_icu_synced.assert_called_once()
+        mock_icu.close.assert_called_once()
+
+    def test_icu_sync_marks_existing_remote_activity_synced(self, tmp_path: Path):
+        config = _icu_config(tmp_path)
+        fit_path = tmp_path / "fit" / "1.fit"
+        fit_path.parent.mkdir()
+        fit_path.write_bytes(b"fit-data")
+        activity = _activity(1, fit_path)
+        remote = MagicMock()
+        remote.id = "icu-1"
+        remote.external_id = "igp-1"
+
+        with (
+            patch("igp_ride.service.IGPSportClient"),
+            patch("igp_ride.service.ActivityDatabase") as MockDB,
+            patch("igp_ride.service.IntervalsIcuClient") as MockIcuClient,
+        ):
+            mock_db = MockDB.return_value
+            mock_db.get_activities_pending_icu_sync.return_value = [activity]
+            mock_icu = MockIcuClient.return_value
+            mock_icu.list_activities.return_value = [remote]
+
+            service = RideSyncService(config)
+            summary = service.sync_icu()
+
+        assert summary.already_remote == 1
+        assert summary.uploaded == 0
+        mock_icu.upload_activity_file.assert_not_called()
+        mock_db.mark_icu_synced.assert_called_once()
+
+    def test_icu_sync_dry_run_does_not_mutate(self, tmp_path: Path):
+        config = _icu_config(tmp_path)
+        fit_path = tmp_path / "fit" / "1.fit"
+        fit_path.parent.mkdir()
+        fit_path.write_bytes(b"fit-data")
+        activity = _activity(1, fit_path)
+
+        with (
+            patch("igp_ride.service.IGPSportClient"),
+            patch("igp_ride.service.ActivityDatabase") as MockDB,
+            patch("igp_ride.service.IntervalsIcuClient") as MockIcuClient,
+        ):
+            mock_db = MockDB.return_value
+            mock_db.get_activities_pending_icu_sync.return_value = [activity]
+            mock_icu = MockIcuClient.return_value
+            mock_icu.list_activities.return_value = []
+
+            service = RideSyncService(config)
+            summary = service.sync_icu(dry_run=True)
+
+        assert summary.dry_run is True
+        assert summary.skipped == 1
+        mock_icu.upload_activity_file.assert_not_called()
+        mock_db.mark_icu_synced.assert_not_called()
+        mock_db.mark_icu_sync_failed.assert_not_called()
+
+    def test_icu_sync_records_missing_fit_as_failure(self, tmp_path: Path):
+        config = _icu_config(tmp_path)
+        fit_path = tmp_path / "fit" / "missing.fit"
+        activity = _activity(1, fit_path)
+
+        with (
+            patch("igp_ride.service.IGPSportClient"),
+            patch("igp_ride.service.ActivityDatabase") as MockDB,
+            patch("igp_ride.service.IntervalsIcuClient") as MockIcuClient,
+        ):
+            mock_db = MockDB.return_value
+            mock_db.get_activities_pending_icu_sync.return_value = [activity]
+            mock_icu = MockIcuClient.return_value
+            mock_icu.list_activities.return_value = []
+
+            service = RideSyncService(config)
+            summary = service.sync_icu()
+
+        assert summary.failed == 1
+        mock_icu.upload_activity_file.assert_not_called()
+        mock_db.mark_icu_sync_failed.assert_called_once()
 
     def test_incremental_uses_fixed_page_size(self):
         now = datetime.now(UTC).isoformat()

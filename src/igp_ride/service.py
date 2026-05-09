@@ -16,6 +16,7 @@ from igp_ride.config import (
 )
 
 from igp_ride.database import ActivityDatabase, ActivitySortKey
+from igp_ride.icu_client import ICUClientError, IntervalsIcuClient
 from igp_ride.models import Activity, PeriodStats, SyncSummary
 from igp_ride.parser import FitParseError, normalize_session_data, parse_fit_file
 from igp_ride.utils import get_logger
@@ -51,6 +52,16 @@ class SyncProgress:
     activities_skipped: int = 0
     fit_files_failed: int = 0
     current_ride_id: int | None = None
+
+
+@dataclass(slots=True)
+class IcuSyncSummary:
+    candidates: int = 0
+    uploaded: int = 0
+    already_remote: int = 0
+    skipped: int = 0
+    failed: int = 0
+    dry_run: bool = False
 
 
 class RideSyncService:
@@ -393,6 +404,108 @@ class RideSyncService:
             group_by=group_by, year=year, activity_type=activity_type
         )
 
+    def sync_icu(
+        self,
+        *,
+        since: date | None = None,
+        include_failed: bool = False,
+        dry_run: bool = False,
+    ) -> IcuSyncSummary:
+        if not self.config.icu_api_key:
+            raise ValueError(
+                "Missing Intervals.icu API key. Set IGP_RIDE_ICU_API_KEY "
+                "or INTERVALS_ICU_API_KEY."
+            )
+
+        pending = self.db.get_activities_pending_icu_sync(
+            since=since,
+            include_failed=include_failed,
+        )
+        summary = IcuSyncSummary(candidates=len(pending), dry_run=dry_run)
+        if not pending:
+            return summary
+
+        icu_client = IntervalsIcuClient(
+            api_key=self.config.icu_api_key,
+            athlete_id=self.config.icu_athlete_id,
+            base_url=self.config.icu_base_url,
+        )
+        try:
+            remote_by_external_id = self._load_icu_remote_external_ids(
+                icu_client,
+                pending,
+            )
+            for activity in pending:
+                external_id = build_icu_external_id(activity.ride_id)
+                remote = remote_by_external_id.get(external_id)
+                if remote is not None:
+                    if not dry_run:
+                        self.db.mark_icu_synced(
+                            activity.ride_id,
+                            icu_activity_id=remote.id,
+                            icu_external_id=external_id,
+                            synced_at=datetime.now(UTC),
+                        )
+                    summary.already_remote += 1
+                    continue
+
+                fit_path = Path(activity.fit_file_path)
+                if not fit_path.exists():
+                    message = f"FIT file does not exist: {fit_path}"
+                    if not dry_run:
+                        self.db.mark_icu_sync_failed(
+                            activity.ride_id,
+                            icu_external_id=external_id,
+                            error=message,
+                        )
+                    summary.failed += 1
+                    continue
+
+                if dry_run:
+                    summary.skipped += 1
+                    continue
+
+                try:
+                    icu_activity_id = icu_client.upload_activity_file(
+                        fit_path,
+                        external_id=external_id,
+                        name=activity.title,
+                        description="Uploaded by igp-ride",
+                    )
+                except ICUClientError as exc:
+                    self.db.mark_icu_sync_failed(
+                        activity.ride_id,
+                        icu_external_id=external_id,
+                        error=str(exc),
+                    )
+                    summary.failed += 1
+                    continue
+
+                self.db.mark_icu_synced(
+                    activity.ride_id,
+                    icu_activity_id=icu_activity_id,
+                    icu_external_id=external_id,
+                    synced_at=datetime.now(UTC),
+                )
+                summary.uploaded += 1
+        finally:
+            icu_client.close()
+
+        return summary
+
+    def _load_icu_remote_external_ids(
+        self,
+        icu_client: IntervalsIcuClient,
+        pending: list[Activity],
+    ):
+        oldest = _oldest_activity_date(pending)
+        remote_activities = icu_client.list_activities(oldest=oldest)
+        return {
+            activity.external_id: activity
+            for activity in remote_activities
+            if activity.external_id
+        }
+
     def repair(
         self,
         progress_callback: Callable[[SyncProgress], None] | None = None,
@@ -655,3 +768,18 @@ def _existing_fit_file_header_is_valid(path: Path) -> bool:
             return _looks_like_fit_file(handle.read(FIT_HEADER_CHECK_BYTES))
     except OSError:
         return False
+
+
+def build_icu_external_id(ride_id: int) -> str:
+    return f"igp-{ride_id}"
+
+
+def _oldest_activity_date(activities: list[Activity]) -> str | None:
+    dates = [
+        activity.start_time.date()
+        for activity in activities
+        if activity.start_time is not None
+    ]
+    if not dates:
+        return None
+    return min(dates).isoformat()
