@@ -150,6 +150,56 @@ class TestUpdateOutput:
         assert "Next: igp-ride list" in captured.out
 
 
+class TestLoginLogoutOutput:
+    def test_main_routes_login_without_options(self):
+        with patch("igp_ride.cli.cmd_login", return_value=0) as cmd:
+            exit_code = main(["login"])
+
+        assert exit_code == 0
+        cmd.assert_called_once_with()
+
+    def test_logout_removes_credentials_with_yes(self, tmp_path: Path, capsys):
+        from igp_ride.cli import cmd_logout
+
+        config = _make_config(tmp_path)
+        service = MagicMock()
+
+        with (
+            patch("igp_ride.cli.AppConfig.load", return_value=config),
+            patch("igp_ride.cli.RideSyncService", return_value=service),
+        ):
+            exit_code = cmd_logout(yes=True)
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        service.logout.assert_called_once_with()
+        service.close.assert_called_once_with()
+        assert "== Logout ==" in captured.out
+        assert "Result: success" in captured.out
+
+    def test_logout_requires_confirmation(self, capsys):
+        from igp_ride.cli import cmd_logout
+
+        with (
+            patch("igp_ride.cli.AppConfig.load") as load,
+            patch("builtins.input", return_value="no"),
+        ):
+            exit_code = cmd_logout(yes=False)
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        load.assert_not_called()
+        assert "This will clear local IGPSPORT credentials and session." in captured.out
+        assert "Result: cancelled" in captured.out
+
+    def test_main_routes_logout_yes(self):
+        with patch("igp_ride.cli.cmd_logout", return_value=0) as cmd:
+            exit_code = main(["logout", "--yes"])
+
+        assert exit_code == 0
+        cmd.assert_called_once_with(True)
+
+
 class TestIcuOutput:
     def test_main_routes_icu_login_options(self):
         with patch("igp_ride.cli.cmd_icu_login", return_value=0) as cmd:

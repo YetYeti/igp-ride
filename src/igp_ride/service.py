@@ -85,7 +85,7 @@ class RideSyncService:
         username: str | None = None,
         password: str | None = None,
     ) -> tuple[str, Path]:
-        final_username = username or self.config.username or input("Username: ").strip()
+        final_username = username or input("Username: ").strip() or self.config.username
         final_password = password or self.config.password or getpass("Password: ")
         if not final_username or not final_password:
             raise ValueError("Username and password are required.")

@@ -56,10 +56,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    login_parser = subparsers.add_parser("login", help="Log in to cycling website")
-    login_parser.add_argument("--username", help="Use specified username")
+    subparsers.add_parser("login", help="Log in to cycling website")
 
-    subparsers.add_parser("logout", help="Clear local credentials and session")
+    logout_parser = subparsers.add_parser(
+        "logout", help="Clear local credentials and session"
+    )
+    logout_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip interactive confirmation",
+    )
     reset_parser = subparsers.add_parser(
         "reset",
         help="Delete all local stored data (database, FIT files, credentials, session)",
@@ -181,9 +187,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         if args.command == "login":
-            return cmd_login(args.username)
+            return cmd_login()
         if args.command == "logout":
-            return cmd_logout()
+            return cmd_logout(args.yes)
         if args.command == "reset":
             return cmd_reset(args.yes)
         if args.command == "update":
@@ -238,11 +244,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-def cmd_login(username: str | None) -> int:
+def cmd_login() -> int:
     config = AppConfig.load()
     service = RideSyncService(config)
     try:
-        account, session_path = service.login(username=username)
+        account, session_path = service.login()
     finally:
         service.close()
 
@@ -337,7 +343,17 @@ def cmd_update(force_full: bool, progress: str, repair: bool) -> int:
     return 0
 
 
-def cmd_logout() -> int:
+def cmd_logout(yes: bool) -> int:
+    _print_title("Logout")
+    if not yes:
+        _print_warning("This will clear local IGPSPORT credentials and session.")
+        _print_warning("Local activities, FIT files, and ICU config will not be deleted.")
+        print()
+        confirm = input("Type LOGOUT to confirm: ").strip()
+        if confirm != "LOGOUT":
+            _print_result("cancelled")
+            return 0
+
     config = AppConfig.load()
     service = RideSyncService(config)
     try:
@@ -345,7 +361,6 @@ def cmd_logout() -> int:
     finally:
         service.close()
 
-    _print_title("Logout")
     _print_result("success")
     _print_field("Path", format_path(config.session_file))
     return 0
