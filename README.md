@@ -2,6 +2,18 @@
 
 `igp-ride` 是一个简洁的命令行工具，用于把 IGPSPORT 骑行活动同步到本地 SQLite 数据库，下载对应 FIT 文件，并可选择将本地 FIT 文件上传到 Intervals.icu。
 
+## 功能概览
+
+- 登录 IGPSPORT 并缓存本地 session
+- 增量同步 IGPSPORT 活动
+- 可选全量刷新历史活动
+- 下载 FIT 文件，并在 `update` 时自动修复缺失或无效的 FIT 文件
+- 查询本地活动列表和单条活动详情
+- 保存 Intervals.icu API key
+- 将本地已下载的 FIT 文件上传到 Intervals.icu
+- 自动跳过远端已存在的 Intervals.icu 活动
+- 自动重试之前失败的 Intervals.icu 同步项
+
 ## 环境要求
 
 - Python 3.14 或更新版本
@@ -11,23 +23,39 @@
 
 ## 安装
 
-在本仓库目录中安装：
+### 远程安装
+
+安装 `main` 分支：
+
+```bash
+uv tool install git+https://github.com/YetYeti/igp-ride@main
+```
+
+升级已安装版本：
+
+```bash
+uv tool install --upgrade git+https://github.com/YetYeti/igp-ride@main
+```
+
+安装后确认命令可用：
+
+```bash
+igp-ride --help
+```
+
+### 本地开发安装
+
+在本仓库目录中安装为本地工具：
 
 ```bash
 uv tool install .
 ```
 
-开发环境中运行：
+或者直接在开发环境中运行：
 
 ```bash
 uv sync
 uv run igp-ride --help
-```
-
-安装后的命令为：
-
-```bash
-igp-ride
 ```
 
 ## 基本流程
