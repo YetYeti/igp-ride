@@ -81,20 +81,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Update remote activities and download FIT files",
     )
     update_parser.add_argument(
-        "--progress",
-        choices=["auto", "plain", "off"],
-        default="auto",
-        help="Progress output mode (default: auto)",
-    )
-    update_parser.add_argument(
         "--all",
         action="store_true",
         help="Force full update of all activities",
-    )
-    update_parser.add_argument(
-        "--repair",
-        action="store_true",
-        help="Only re-download missing or invalid FIT files",
     )
 
     icu_parser = subparsers.add_parser(
@@ -162,19 +151,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Sort in descending order",
     )
-    list_parser.add_argument(
-        "--update",
-        action="store_true",
-        help="Update remote activities before listing",
-    )
 
     show_parser = subparsers.add_parser("show", help="Show activity details")
     show_parser.add_argument("activity_id", help="Activity ID or 'last'")
-    show_parser.add_argument(
-        "--update",
-        action="store_true",
-        help="Update remote activities before showing",
-    )
 
     return parser
 
@@ -193,18 +172,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "reset":
             return cmd_reset(args.yes)
         if args.command == "update":
-            return cmd_update(args.all, args.progress, args.repair)
+            return cmd_update(args.all)
         if args.command == "icu":
             return cmd_icu(args)
         if args.command == "list":
             return cmd_list(
                 args.limit,
-                args.update,
                 args.sort,
                 descending=not args.asc,
             )
         if args.command == "show":
-            return cmd_show(args.activity_id, args.update)
+            return cmd_show(args.activity_id)
     except ConfigurationError as exc:
         _print_error_block(
             _command_title(args),
@@ -260,9 +238,10 @@ def cmd_login() -> int:
     return 0
 
 
-def cmd_update(force_full: bool, progress: str, repair: bool) -> int:
+def cmd_update(force_full: bool) -> int:
     config = AppConfig.load(require_credentials=True)
     service = RideSyncService(config)
+    progress = "auto"
     tty_progress = progress == "auto" and sys.stderr.isatty()
     plain_progress = progress == "plain" or (
         progress == "auto" and not sys.stderr.isatty()
@@ -322,12 +301,10 @@ def cmd_update(force_full: bool, progress: str, repair: bool) -> int:
         current_stage = "processing"
 
     try:
-        if repair:
-            summary = service.repair(progress_callback=render_progress)
-        else:
-            summary = service.sync(
-                force_full=force_full, progress_callback=render_progress
-            )
+        summary = service.sync(force_full=force_full, progress_callback=render_progress)
+        repair_summary = service.repair(progress_callback=render_progress)
+        summary.updated_activities += repair_summary.updated_activities
+        summary.fit_files_failed += repair_summary.fit_files_failed
     finally:
         service.close()
 
@@ -335,7 +312,7 @@ def cmd_update(force_full: bool, progress: str, repair: bool) -> int:
         print(file=sys.stderr)
 
     _print_result("success")
-    _print_field("Mode", _update_mode(force_full, repair))
+    _print_field("Mode", _update_mode(force_full))
     _print_sync_summary(summary)
     if summary.fit_files_failed > 0:
         _print_warning(f"{summary.fit_files_failed} FIT file(s) failed to download.")
@@ -593,16 +570,13 @@ def cmd_daemon_status() -> int:
 
 def cmd_list(
     limit: int | None,
-    do_update: bool,
     sort_by: ActivitySortKey = "date",
     *,
     descending: bool = True,
 ) -> int:
-    config = AppConfig.load(require_credentials=do_update)
+    config = AppConfig.load()
     service = RideSyncService(config)
     try:
-        if do_update:
-            service.sync()
         activities = service.list_activities(
             limit=limit,
             sort_by=sort_by,
@@ -669,12 +643,10 @@ def cmd_reset(yes: bool) -> int:
     return 10 if has_failure else 0
 
 
-def cmd_show(activity_id: str, do_update: bool) -> int:
-    config = AppConfig.load(require_credentials=do_update)
+def cmd_show(activity_id: str) -> int:
+    config = AppConfig.load()
     service = RideSyncService(config)
     try:
-        if do_update:
-            service.sync(force_full=False)
         if activity_id == "last":
             activity = service.get_latest_activity()
         else:
@@ -969,9 +941,7 @@ def _format_summary_value(value: object) -> str:
     return str(value)
 
 
-def _update_mode(force_full: bool, repair: bool) -> str:
-    if repair:
-        return "repair"
+def _update_mode(force_full: bool) -> str:
     if force_full:
         return "full"
     return "incremental"

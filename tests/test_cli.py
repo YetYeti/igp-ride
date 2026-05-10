@@ -95,6 +95,10 @@ class FakeUpdateService:
             fit_files_failed=0,
         )
 
+    def repair(self, progress_callback=None) -> SyncSummary:
+        assert progress_callback is not None
+        return SyncSummary(updated_activities=1)
+
     def close(self) -> None:
         self.closed = True
 
@@ -132,7 +136,7 @@ class TestUpdateOutput:
             patch("igp_ride.cli.AppConfig.load", return_value=config),
             patch("igp_ride.cli.RideSyncService", return_value=service),
         ):
-            exit_code = cmd_update(False, "plain", False)
+            exit_code = cmd_update(False)
 
         captured = capsys.readouterr()
         assert exit_code == 0
@@ -145,7 +149,7 @@ class TestUpdateOutput:
         assert "Result: success" in captured.out
         assert "Mode: incremental" in captured.out
         assert (
-            "Summary: remote=57 new=1 updated=3 skipped=53 fit_failed=0" in captured.out
+            "Summary: remote=57 new=1 updated=4 skipped=53 fit_failed=0" in captured.out
         )
         assert "Next: igp-ride list" in captured.out
 
@@ -394,7 +398,7 @@ class TestListOutput:
             exit_code = main(["list", "--sort", "distance", "--asc", "--limit", "5"])
 
         assert exit_code == 0
-        cmd_list_mock.assert_called_once_with(5, False, "distance", descending=False)
+        cmd_list_mock.assert_called_once_with(5, "distance", descending=False)
 
     def test_empty_list_uses_count_and_tip(self, tmp_path: Path, capsys):
         config = _make_config(tmp_path)
@@ -405,7 +409,7 @@ class TestListOutput:
             patch("igp_ride.cli.AppConfig.load", return_value=config),
             patch("igp_ride.cli.RideSyncService", return_value=service),
         ):
-            exit_code = cmd_list(limit=None, do_update=False)
+            exit_code = cmd_list(limit=None)
 
         captured = capsys.readouterr()
         assert exit_code == 0
@@ -439,7 +443,7 @@ class TestListOutput:
             patch("igp_ride.cli.AppConfig.load", return_value=config),
             patch("igp_ride.cli.RideSyncService", return_value=service),
         ):
-            exit_code = cmd_list(limit=None, do_update=False)
+            exit_code = cmd_list(limit=None)
 
         captured = capsys.readouterr()
         assert exit_code == 0
@@ -458,7 +462,7 @@ class TestListOutput:
             patch("igp_ride.cli.AppConfig.load", return_value=config),
             patch("igp_ride.cli.RideSyncService", return_value=service),
         ):
-            exit_code = cmd_list(limit=20, do_update=False, sort_by="distance")
+            exit_code = cmd_list(limit=20, sort_by="distance")
 
         captured = capsys.readouterr()
         assert exit_code == 0
@@ -496,7 +500,7 @@ class TestListOutput:
             patch("igp_ride.cli.AppConfig.load", return_value=config),
             patch("igp_ride.cli.RideSyncService", return_value=service),
         ):
-            exit_code = cmd_list(limit=None, do_update=False)
+            exit_code = cmd_list(limit=None)
 
         lines = capsys.readouterr().out.splitlines()
         assert exit_code == 0
@@ -518,7 +522,7 @@ class TestShowOutput:
             patch("igp_ride.cli.AppConfig.load", return_value=config),
             patch("igp_ride.cli.RideSyncService", return_value=service),
         ):
-            exit_code = cmd_show("last", False)
+            exit_code = cmd_show("last")
 
         captured = capsys.readouterr()
         assert activity.start_time is not None
