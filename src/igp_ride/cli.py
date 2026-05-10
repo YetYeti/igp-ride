@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from datetime import datetime
 from getpass import getpass
@@ -25,6 +26,8 @@ from igp_ride.utils import setup_logging
 
 
 _title_printed = False
+_output_format = "text"
+_no_input = False
 
 
 def _get_cli_version() -> str:
@@ -44,9 +47,29 @@ def build_parser() -> argparse.ArgumentParser:
         action="version",
         version=f"%(prog)s {_get_cli_version()}",
     )
+    parser.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format. JSON mode writes only JSON to stdout.",
+    )
+    parser.add_argument(
+        "--no-input",
+        action="store_true",
+        help="Fail instead of prompting for input.",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser("login", help="Log in to cycling website")
+    login_parser = subparsers.add_parser("login", help="Log in to cycling website")
+    login_parser.add_argument(
+        "--username",
+        help="IGPSPORT username. Password still comes from stored config, environment, or stdin.",
+    )
+    login_parser.add_argument(
+        "--password-stdin",
+        action="store_true",
+        help="Read IGPSPORT password from stdin.",
+    )
 
     logout_parser = subparsers.add_parser(
         "logout", help="Clear local credentials and session"
@@ -86,8 +109,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Save Intervals.icu API key",
     )
     icu_login_parser.add_argument(
-        "--api-key",
-        help="Intervals.icu API key. If omitted, prompts securely.",
+        "--api-key-stdin",
+        action="store_true",
+        help="Read Intervals.icu API key from stdin.",
     )
     icu_logout_parser = icu_subparsers.add_parser(
         "logout",
@@ -142,70 +166,93 @@ def main(argv: Sequence[str] | None = None) -> int:
     setup_logging()
     parser = build_parser()
     args = parser.parse_args(argv)
-    _reset_output_state()
+    _reset_output_state(output_format=args.format, no_input=args.no_input)
 
     try:
-        if args.command == "login":
-            return cmd_login()
-        if args.command == "logout":
-            return cmd_logout(args.yes)
-        if args.command == "reset":
-            return cmd_reset(args.yes)
-        if args.command == "update":
-            return cmd_update(args.all)
-        if args.command == "icu":
-            return cmd_icu(args)
-        if args.command == "list":
-            return cmd_list(
-                args.limit,
-                args.sort,
-                descending=not args.asc,
+        try:
+            if args.command == "login":
+                return cmd_login(args.username, args.password_stdin)
+            if args.command == "logout":
+                return cmd_logout(args.yes)
+            if args.command == "reset":
+                return cmd_reset(args.yes)
+            if args.command == "update":
+                return cmd_update(args.all)
+            if args.command == "icu":
+                return cmd_icu(args)
+            if args.command == "list":
+                return cmd_list(
+                    args.limit,
+                    args.sort,
+                    descending=not args.asc,
+                )
+            if args.command == "show":
+                return cmd_show(args.activity_id)
+        except ConfigurationError as exc:
+            _print_error_block(
+                _command_title(args),
+                str(exc),
+                _configuration_error_tip(args, str(exc)),
             )
-        if args.command == "show":
-            return cmd_show(args.activity_id)
-    except ConfigurationError as exc:
-        _print_error_block(
-            _command_title(args),
-            str(exc),
-            "Run igp-ride login first",
-        )
-        return 2
-    except AuthenticationError as exc:
-        _print_error_block(
-            _command_title(args),
-            str(exc),
-            "Run igp-ride login to re-authenticate",
-        )
-        return 3
-    except requests.RequestException as exc:
-        _print_error_block(
-            _command_title(args),
-            f"Network error: {exc}",
-            "Check your internet connection and try again",
-        )
-        return 4
-    except DatabaseError as exc:
-        _print_error_block(_command_title(args), str(exc))
-        return 5
-    except DataSyncError as exc:
-        _print_error_block(_command_title(args), str(exc))
-        return 6
-    except FileNotFoundError as exc:
-        _print_error_block(_command_title(args), f"File error: {exc}")
-        return 7
-    except ValueError as exc:
-        _print_error_block(_command_title(args), str(exc))
-        return 2
-    return 0
+            return 2
+        except AuthenticationError as exc:
+            _print_error_block(
+                _command_title(args),
+                str(exc),
+                "Run igp-ride login to re-authenticate",
+            )
+            return 3
+        except requests.RequestException as exc:
+            _print_error_block(
+                _command_title(args),
+                f"Network error: {exc}",
+                "Check your internet connection and try again",
+            )
+            return 4
+        except DatabaseError as exc:
+            _print_error_block(_command_title(args), str(exc))
+            return 5
+        except DataSyncError as exc:
+            _print_error_block(_command_title(args), str(exc))
+            return 6
+        except FileNotFoundError as exc:
+            _print_error_block(_command_title(args), f"File error: {exc}")
+            return 7
+        except ValueError as exc:
+            _print_error_block(_command_title(args), str(exc))
+            return 2
+        return 0
+    finally:
+        _reset_output_state()
 
 
-def cmd_login() -> int:
+def cmd_login(username: str | None = None, password_stdin: bool = False) -> int:
     config = AppConfig.load()
+    password = _read_secret_stdin("IGPSPORT password") if password_stdin else None
+    if _input_disabled():
+        if not username and not config.username:
+            raise ConfigurationError("Missing username. Pass --username or set IGP_USERNAME.")
+        if not password and not config.password:
+            raise ConfigurationError(
+                "Missing password. Pass --password-stdin or set IGP_PASSWORD."
+            )
     service = RideSyncService(config)
     try:
-        account, session_path = service.login()
+        account, session_path = service.login(username=username, password=password)
     finally:
         service.close()
+
+    if _json_output():
+        _print_json(
+            {
+                "command": "login",
+                "result": "success",
+                "account": account,
+                "path": format_path(session_path),
+                "next": ["igp-ride update"],
+            }
+        )
+        return 0
 
     _print_title("Login")
     _print_result("success")
@@ -218,7 +265,7 @@ def cmd_login() -> int:
 def cmd_update(force_full: bool) -> int:
     config = AppConfig.load(require_credentials=True)
     service = RideSyncService(config)
-    tty_progress = sys.stderr.isatty()
+    tty_progress = sys.stderr.isatty() and not _json_output()
     current_stage: str | None = None
     last_plain_percent = -1
     _print_title("Update")
@@ -255,7 +302,7 @@ def cmd_update(force_full: bool) -> int:
 
         if p.stage == "fetching":
             if current_stage != "fetching":
-                print("Progress: stage=fetching")
+                print("Progress: stage=fetching", file=sys.stderr)
                 current_stage = "fetching"
             return
 
@@ -267,7 +314,10 @@ def cmd_update(force_full: bool) -> int:
         if percent < 100 and percent // 10 == last_plain_percent // 10:
             return
         last_plain_percent = percent
-        print(f"Progress: done={p.done} total={p.total} percent={percent}")
+        print(
+            f"Progress: done={p.done} total={p.total} percent={percent}",
+            file=sys.stderr,
+        )
         current_stage = "processing"
 
     try:
@@ -281,6 +331,23 @@ def cmd_update(force_full: bool) -> int:
     if tty_progress and current_stage is not None:
         print(file=sys.stderr)
 
+    if _json_output():
+        _print_json(
+            {
+                "command": "update",
+                "result": "success",
+                "mode": _update_mode(force_full),
+                "summary": _sync_summary_payload(summary),
+                "warnings": (
+                    [f"{summary.fit_files_failed} FIT file(s) failed to download."]
+                    if summary.fit_files_failed > 0
+                    else []
+                ),
+                "next": ["igp-ride list"],
+            }
+        )
+        return 0
+
     _print_result("success")
     _print_field("Mode", _update_mode(force_full))
     _print_sync_summary(summary)
@@ -291,8 +358,10 @@ def cmd_update(force_full: bool) -> int:
 
 
 def cmd_logout(yes: bool) -> int:
-    _print_title("Logout")
     if not yes:
+        if _input_disabled():
+            raise ConfigurationError("Confirmation required. Pass --yes to run logout.")
+        _print_title("Logout")
         _print_warning("This will clear local IGPSPORT credentials and session.")
         _print_warning("Local activities, FIT files, and ICU config will not be deleted.")
         print()
@@ -300,6 +369,8 @@ def cmd_logout(yes: bool) -> int:
         if confirm != "LOGOUT":
             _print_result("cancelled")
             return 0
+    elif not _json_output():
+        _print_title("Logout")
 
     config = AppConfig.load()
     service = RideSyncService(config)
@@ -308,6 +379,16 @@ def cmd_logout(yes: bool) -> int:
     finally:
         service.close()
 
+    if _json_output():
+        _print_json(
+            {
+                "command": "logout",
+                "result": "success",
+                "path": format_path(config.session_file),
+            }
+        )
+        return 0
+
     _print_result("success")
     _print_field("Path", format_path(config.session_file))
     return 0
@@ -315,7 +396,7 @@ def cmd_logout(yes: bool) -> int:
 
 def cmd_icu(args: argparse.Namespace) -> int:
     if args.icu_command == "login":
-        return cmd_icu_login(args.api_key)
+        return cmd_icu_login(args.api_key_stdin)
     if args.icu_command == "logout":
         return cmd_icu_logout(args.yes)
     if args.icu_command == "status":
@@ -325,9 +406,29 @@ def cmd_icu(args: argparse.Namespace) -> int:
     raise ValueError(f"Unknown icu command: {args.icu_command}")
 
 
-def cmd_icu_login(api_key: str | None) -> int:
-    final_api_key = api_key or getpass("Intervals.icu API key: ").strip()
+def cmd_icu_login(api_key_stdin: bool = False) -> int:
+    if api_key_stdin:
+        final_api_key = _read_secret_stdin("Intervals.icu API key")
+    elif _input_disabled():
+        final_api_key = AppConfig.load().icu_api_key
+        if not final_api_key:
+            raise ConfigurationError(
+                "Intervals.icu API key is required. Pass --api-key-stdin or set IGP_RIDE_ICU_API_KEY."
+            )
+    else:
+        final_api_key = getpass("Intervals.icu API key: ").strip()
     config_path = save_icu_config(api_key=final_api_key)
+
+    if _json_output():
+        _print_json(
+            {
+                "command": "icu.login",
+                "result": "success",
+                "path": format_path(config_path),
+                "next": ["igp-ride icu status"],
+            }
+        )
+        return 0
 
     _print_title("ICU Login")
     _print_result("success")
@@ -337,8 +438,10 @@ def cmd_icu_login(api_key: str | None) -> int:
 
 
 def cmd_icu_logout(yes: bool) -> int:
-    _print_title("ICU Logout")
     if not yes:
+        if _input_disabled():
+            raise ConfigurationError("Confirmation required. Pass --yes to run icu logout.")
+        _print_title("ICU Logout")
         _print_warning("This will remove the saved Intervals.icu API key.")
         _print_warning("Local activities and ICU sync history will not be deleted.")
         print()
@@ -346,8 +449,20 @@ def cmd_icu_logout(yes: bool) -> int:
         if confirm != "LOGOUT":
             _print_result("cancelled")
             return 0
+    elif not _json_output():
+        _print_title("ICU Logout")
 
     clear_icu_config()
+    if _json_output():
+        _print_json(
+            {
+                "command": "icu.logout",
+                "result": "success",
+                "logged_in": False,
+            }
+        )
+        return 0
+
     _print_result("success")
     _print_field("Logged In", False)
     return 0
@@ -355,11 +470,25 @@ def cmd_icu_logout(yes: bool) -> int:
 
 def cmd_icu_status() -> int:
     config = AppConfig.load()
-    _print_title("ICU Status")
-    _print_field("Logged In", bool(config.icu_api_key))
+    payload: dict[str, object] = {
+        "command": "icu.status",
+        "result": "success",
+        "logged_in": bool(config.icu_api_key),
+        "authenticated": False,
+    }
+    if _json_output():
+        if not config.icu_api_key:
+            payload["tips"] = ["Run igp-ride icu login"]
+            _print_json(payload)
+            return 0
+    else:
+        _print_title("ICU Status")
+    if not _json_output():
+        _print_field("Logged In", bool(config.icu_api_key))
     if not config.icu_api_key:
-        _print_field("Authenticated", False)
-        _print_tip("Run igp-ride icu login")
+        if not _json_output():
+            _print_field("Authenticated", False)
+            _print_tip("Run igp-ride icu login")
         return 0
 
     client = IntervalsIcuClient(
@@ -368,11 +497,26 @@ def cmd_icu_status() -> int:
     try:
         athlete = client.get_athlete()
     except ICUClientError as exc:
+        if _json_output():
+            payload["error"] = str(exc)
+            _print_json(payload)
+            return 0
         _print_field("Authenticated", False)
         _print_error_line(str(exc))
         return 0
     finally:
         client.close()
+
+    if _json_output():
+        payload["authenticated"] = True
+        athlete_id = athlete.get("id")
+        if isinstance(athlete_id, str) and athlete_id:
+            payload["remote_athlete_id"] = athlete_id
+        athlete_name = athlete.get("name")
+        if isinstance(athlete_name, str) and athlete_name:
+            payload["name"] = athlete_name
+        _print_json(payload)
+        return 0
 
     _print_field("Authenticated", True)
     athlete_id = athlete.get("id")
@@ -393,6 +537,18 @@ def cmd_icu_sync(dry_run: bool) -> int:
         )
     finally:
         service.close()
+
+    if _json_output():
+        _print_json(
+            {
+                "command": "icu.sync",
+                "result": "success",
+                "mode": "dry-run" if dry_run else "upload",
+                "summary": _icu_sync_summary_payload(summary),
+                "next": ["igp-ride icu sync"] if dry_run else [],
+            }
+        )
+        return 0
 
     _print_title("ICU Sync")
     _print_result("success")
@@ -419,6 +575,25 @@ def cmd_list(
         )
     finally:
         service.close()
+
+    if _json_output():
+        _print_json(
+            {
+                "command": "list",
+                "result": "success",
+                "limit": limit,
+                "sort": sort_by,
+                "descending": descending,
+                "count": len(activities),
+                "activities": [_activity_list_payload(activity) for activity in activities],
+                "tips": (
+                    ["Run igp-ride update to download activities from IGPSPORT"]
+                    if not activities
+                    else []
+                ),
+            }
+        )
+        return 0
 
     _print_title("Activity List")
     if not activities:
@@ -453,8 +628,10 @@ def cmd_list(
 
 def cmd_reset(yes: bool) -> int:
     config = AppConfig.load()
-    _print_title("Reset")
     if not yes:
+        if _input_disabled():
+            raise ConfigurationError("Confirmation required. Pass --yes to run reset.")
+        _print_title("Reset")
         _print_warning("This will permanently delete all local igp-ride data.")
         _print_warning(
             "Saved credentials and session data will also be removed."
@@ -466,6 +643,8 @@ def cmd_reset(yes: bool) -> int:
         if confirm != "RESET":
             _print_result("cancelled")
             return 0
+    elif not _json_output():
+        _print_title("Reset")
 
     service = RideSyncService(config)
     try:
@@ -473,8 +652,12 @@ def cmd_reset(yes: bool) -> int:
     finally:
         service.close()
 
-    print_reset_summary(results)
     has_failure = any(item.status == "failed" for item in results)
+    if _json_output():
+        _print_json(_reset_payload(results))
+        return 10 if has_failure else 0
+
+    print_reset_summary(results)
     return 10 if has_failure else 0
 
 
@@ -489,8 +672,30 @@ def cmd_show(activity_id: str) -> int:
     finally:
         service.close()
 
-    _print_title("Activity Details")
     if activity is None:
+        if _json_output():
+            _print_json(
+                {
+                    "command": "show",
+                    "result": "error",
+                    "activity_id": activity_id,
+                    "error": (
+                        "No activities found"
+                        if activity_id == "last"
+                        else f"Activity not found: {activity_id}"
+                    ),
+                    "tips": [
+                        (
+                            "Run igp-ride update to download activities first"
+                            if activity_id == "last"
+                            else "Run igp-ride list to see available activities"
+                        )
+                    ],
+                }
+            )
+            return 8
+
+        _print_title("Activity Details")
         if activity_id == "last":
             _print_error_line("No activities found")
             _print_tip("Run igp-ride update to download activities first")
@@ -499,6 +704,17 @@ def cmd_show(activity_id: str) -> int:
             _print_tip("Run igp-ride list to see available activities")
         return 8
 
+    if _json_output():
+        _print_json(
+            {
+                "command": "show",
+                "result": "success",
+                "activity": _activity_detail_payload(activity),
+            }
+        )
+        return 0
+
+    _print_title("Activity Details")
     print_activity(activity)
     return 0
 
@@ -615,9 +831,30 @@ def _as_str_state(value: object) -> str:
     return value if isinstance(value, str) else ""
 
 
-def _reset_output_state() -> None:
-    global _title_printed
+def _reset_output_state(*, output_format: str = "text", no_input: bool = False) -> None:
+    global _title_printed, _output_format, _no_input
     _title_printed = False
+    _output_format = output_format
+    _no_input = no_input
+
+
+def _json_output() -> bool:
+    return _output_format == "json"
+
+
+def _input_disabled() -> bool:
+    return _no_input or _json_output()
+
+
+def _read_secret_stdin(label: str) -> str:
+    value = sys.stdin.read().strip()
+    if not value:
+        raise ConfigurationError(f"{label} is required on stdin.")
+    return value
+
+
+def _print_json(payload: dict[str, object]) -> None:
+    print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
 
 
 def _command_title(args: argparse.Namespace) -> str:
@@ -643,7 +880,21 @@ def _icu_command_title(args: argparse.Namespace) -> str:
     return titles.get(_as_str_state(getattr(args, "icu_command", "")), "ICU")
 
 
+def _configuration_error_tip(args: argparse.Namespace, message: str) -> str | None:
+    if message.startswith("Confirmation required."):
+        if _as_str_state(getattr(args, "command", "")) == "icu":
+            return f"Run igp-ride icu {getattr(args, 'icu_command', '')} --yes"
+        return f"Run igp-ride {getattr(args, 'command', '')} --yes"
+    if "Missing username" in message or "Missing password" in message:
+        return "Set IGP_USERNAME/IGP_PASSWORD or use login --username with --password-stdin"
+    if "Intervals.icu API key" in message:
+        return "Set IGP_RIDE_ICU_API_KEY or use icu login --api-key-stdin"
+    return "Run igp-ride login first"
+
+
 def _print_title(title: str, *, file: TextIO | None = None) -> None:
+    if _json_output():
+        return
     global _title_printed
     output = _resolve_output(file)
     print(f"== {title} ==", file=output)
@@ -680,6 +931,8 @@ def _print_tip(message: str, *, file: TextIO | None = None) -> None:
 
 
 def _print_warning(message: str, *, file: TextIO | None = None) -> None:
+    if file is None:
+        file = sys.stderr
     print(f"Warning: {message}", file=_resolve_output(file))
 
 
@@ -688,6 +941,16 @@ def _print_error_line(message: str, *, file: TextIO | None = None) -> None:
 
 
 def _print_error_block(title: str, message: str, tip: str | None = None) -> None:
+    if _json_output():
+        payload: dict[str, object] = {
+            "command": _json_command_from_title(title),
+            "result": "error",
+            "error": message,
+        }
+        if tip:
+            payload["tips"] = [tip]
+        _print_json(payload)
+        return
     if not _title_printed:
         _print_title(title, file=sys.stderr)
     _print_error_line(message, file=sys.stderr)
@@ -725,6 +988,16 @@ def _print_sync_summary(summary: SyncSummary) -> None:
     )
 
 
+def _sync_summary_payload(summary: SyncSummary) -> dict[str, int]:
+    return {
+        "remote": summary.remote_fetched,
+        "new": summary.new_activities,
+        "updated": summary.updated_activities,
+        "skipped": summary.activities_skipped,
+        "fit_failed": summary.fit_files_failed,
+    }
+
+
 def _print_icu_sync_summary(summary: IcuSyncSummary) -> None:
     _print_summary(
         [
@@ -736,6 +1009,91 @@ def _print_icu_sync_summary(summary: IcuSyncSummary) -> None:
             ("dry_run", summary.dry_run),
         ]
     )
+
+
+def _icu_sync_summary_payload(summary: IcuSyncSummary) -> dict[str, int | bool]:
+    return {
+        "candidates": summary.candidates,
+        "uploaded": summary.uploaded,
+        "already_remote": summary.already_remote,
+        "skipped": summary.skipped,
+        "failed": summary.failed,
+        "dry_run": summary.dry_run,
+    }
+
+
+def _reset_payload(results: list[ResetResult]) -> dict[str, object]:
+    deleted = sum(1 for item in results if item.status == "deleted")
+    not_found = sum(1 for item in results if item.status == "not_found")
+    failed = sum(1 for item in results if item.status == "failed")
+    return {
+        "command": "reset",
+        "result": "partial" if failed > 0 else "success",
+        "items": [
+            {
+                "path": format_path(item.path),
+                "status": item.status,
+                "error": item.error,
+            }
+            for item in results
+        ],
+        "summary": {
+            "deleted": deleted,
+            "not_found": not_found,
+            "failed": failed,
+        },
+    }
+
+
+def _activity_list_payload(activity: Activity) -> dict[str, object]:
+    return {
+        "ride_id": activity.ride_id,
+        "title": format_activity_name(activity.title),
+        "start_time": _format_json_datetime(activity.start_time),
+        "distance_m": activity.total_distance,
+        "moving_time_s": activity.total_moving_time,
+        "elapsed_time_s": activity.total_elapsed_time,
+        "ascent_m": activity.total_ascent,
+        "avg_speed_mps": activity.avg_speed,
+        "avg_power_w": activity.avg_power,
+    }
+
+
+def _activity_detail_payload(activity: Activity) -> dict[str, object]:
+    payload = _activity_list_payload(activity)
+    payload.update(
+        {
+            "member_id": activity.member_id,
+            "sport": activity.sport,
+            "sub_sport": activity.sub_sport,
+            "descent_m": activity.total_descent,
+            "calories_kcal": activity.total_calories,
+            "avg_cadence_rpm": activity.avg_cadence,
+            "max_cadence_rpm": activity.max_cadence,
+            "avg_heart_rate_bpm": activity.avg_heart_rate,
+            "max_heart_rate_bpm": activity.max_heart_rate,
+            "max_power_w": activity.max_power,
+            "normalized_power_w": activity.normalized_power,
+            "intensity_factor": activity.intensity_factor,
+            "training_stress_score": activity.training_stress_score,
+            "max_speed_mps": activity.max_speed,
+            "fit_file_path": activity.fit_file_path,
+            "fit_file_status": activity.fit_file_status,
+            "icu_activity_id": activity.icu_activity_id,
+            "icu_external_id": activity.icu_external_id,
+            "icu_sync_status": activity.icu_sync_status,
+            "icu_sync_error": activity.icu_sync_error,
+        }
+    )
+    return payload
+
+
+def _format_json_datetime(value: datetime | None) -> str | None:
+    return value.isoformat() if value is not None else None
+
+
+def _json_command_from_title(title: str) -> str:
+    return title.lower().replace(" ", ".")
 
 
 def _format_activity_date(value: datetime | None) -> str:

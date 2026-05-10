@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -9,7 +11,7 @@ import pytest
 from igp_ride.cli import cmd_icu_sync, cmd_list, cmd_show, cmd_update, main
 from igp_ride.config import AppConfig, ConfigurationError
 from igp_ride.models import Activity, SyncSummary
-from igp_ride.service import IcuSyncSummary, SyncProgress
+from igp_ride.service import IcuSyncSummary, ResetResult, SyncProgress
 
 
 def _make_config(tmp_path: Path) -> AppConfig:
@@ -142,9 +144,9 @@ class TestUpdateOutput:
         assert exit_code == 0
         assert service.closed is True
         assert "== Update ==" in captured.out
-        assert "Progress: stage=fetching" in captured.out
-        assert "Progress: done=12 total=57 percent=21" in captured.out
-        assert "Progress: done=57 total=57 percent=100" in captured.out
+        assert "Progress: stage=fetching" in captured.err
+        assert "Progress: done=12 total=57 percent=21" in captured.err
+        assert "Progress: done=57 total=57 percent=100" in captured.err
         assert "new=1 updated=0" not in captured.out
         assert "Result: success" in captured.out
         assert "Mode: incremental" in captured.out
@@ -153,6 +155,30 @@ class TestUpdateOutput:
         )
         assert "Next: igp-ride list" in captured.out
 
+    def test_json_output_is_single_stdout_payload(self, tmp_path: Path, capsys):
+        config = _make_config(tmp_path)
+        service = FakeUpdateService()
+
+        with (
+            patch("igp_ride.cli.AppConfig.load", return_value=config),
+            patch("igp_ride.cli.RideSyncService", return_value=service),
+        ):
+            exit_code = main(["--format", "json", "update"])
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        payload = json.loads(captured.out)
+        assert payload["command"] == "update"
+        assert payload["result"] == "success"
+        assert payload["summary"] == {
+            "remote": 57,
+            "new": 1,
+            "updated": 4,
+            "skipped": 53,
+            "fit_failed": 0,
+        }
+        assert "== Update ==" not in captured.out
+
 
 class TestLoginLogoutOutput:
     def test_main_routes_login_without_options(self):
@@ -160,7 +186,53 @@ class TestLoginLogoutOutput:
             exit_code = main(["login"])
 
         assert exit_code == 0
-        cmd.assert_called_once_with()
+        cmd.assert_called_once_with(None, False)
+
+    def test_main_routes_login_stdin_options(self):
+        with patch("igp_ride.cli.cmd_login", return_value=0) as cmd:
+            exit_code = main(["login", "--username", "tester", "--password-stdin"])
+
+        assert exit_code == 0
+        cmd.assert_called_once_with("tester", True)
+
+    def test_login_no_input_requires_missing_credentials(self, tmp_path: Path, capsys):
+        config = AppConfig(
+            username="",
+            password="",
+            data_dir=tmp_path / "data",
+            fit_dir=tmp_path / "data" / "fit",
+            session_file=tmp_path / "config" / "session.json",
+            db_path=tmp_path / "data" / "rides.db",
+        )
+
+        with patch("igp_ride.cli.AppConfig.load", return_value=config):
+            exit_code = main(["--no-input", "login"])
+
+        captured = capsys.readouterr()
+        assert exit_code == 2
+        assert "Missing username" in captured.err
+
+    def test_login_reads_password_from_stdin(self, tmp_path: Path, capsys):
+        from igp_ride.cli import cmd_login
+
+        config = _make_config(tmp_path)
+        service = MagicMock()
+        service.login.return_value = ("tester", config.session_file)
+
+        with (
+            patch("igp_ride.cli.AppConfig.load", return_value=config),
+            patch("igp_ride.cli.RideSyncService", return_value=service),
+            patch("sys.stdin", StringIO("secret-from-stdin\n")),
+        ):
+            exit_code = cmd_login("tester", True)
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        service.login.assert_called_once_with(
+            username="tester",
+            password="secret-from-stdin",
+        )
+        assert "secret-from-stdin" not in captured.out
 
     def test_logout_removes_credentials_with_yes(self, tmp_path: Path, capsys):
         from igp_ride.cli import cmd_logout
@@ -193,7 +265,7 @@ class TestLoginLogoutOutput:
         captured = capsys.readouterr()
         assert exit_code == 0
         load.assert_not_called()
-        assert "This will clear local IGPSPORT credentials and session." in captured.out
+        assert "This will clear local IGPSPORT credentials and session." in captured.err
         assert "Result: cancelled" in captured.out
 
     def test_main_routes_logout_yes(self):
@@ -211,21 +283,23 @@ class TestIcuOutput:
                 [
                     "icu",
                     "login",
-                    "--api-key",
-                    "secret",
+                    "--api-key-stdin",
                 ]
             )
 
         assert exit_code == 0
-        cmd.assert_called_once_with("secret")
+        cmd.assert_called_once_with(True)
 
     def test_icu_login_saves_config_without_printing_key(self, tmp_path: Path, capsys):
         config_file = tmp_path / "icu.json"
 
-        with patch("igp_ride.cli.save_icu_config", return_value=config_file) as save:
+        with (
+            patch("igp_ride.cli.save_icu_config", return_value=config_file) as save,
+            patch("sys.stdin", StringIO("secret\n")),
+        ):
             from igp_ride.cli import cmd_icu_login
 
-            exit_code = cmd_icu_login("secret")
+            exit_code = cmd_icu_login(api_key_stdin=True)
 
         captured = capsys.readouterr()
         assert exit_code == 0
@@ -258,7 +332,7 @@ class TestIcuOutput:
         captured = capsys.readouterr()
         assert exit_code == 0
         clear.assert_not_called()
-        assert "This will remove the saved Intervals.icu API key." in captured.out
+        assert "This will remove the saved Intervals.icu API key." in captured.err
         assert "Result: cancelled" in captured.out
 
     def test_main_routes_icu_logout_yes(self):
@@ -379,6 +453,42 @@ class TestIcuOutput:
         assert "dry_run=yes" in captured.out
         assert "Next: igp-ride icu sync" in captured.out
 
+    def test_icu_status_json_without_key(self, tmp_path: Path, capsys):
+        config = _make_config(tmp_path)
+
+        with patch("igp_ride.cli.AppConfig.load", return_value=config):
+            exit_code = main(["--format", "json", "icu", "status"])
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        payload = json.loads(captured.out)
+        assert payload["command"] == "icu.status"
+        assert payload["logged_in"] is False
+        assert payload["authenticated"] is False
+        assert captured.err == ""
+
+    def test_icu_sync_json(self, tmp_path: Path, capsys):
+        config = _make_config(tmp_path)
+        service = MagicMock()
+        service.sync_icu.return_value = IcuSyncSummary(
+            candidates=1,
+            skipped=1,
+            dry_run=True,
+        )
+
+        with (
+            patch("igp_ride.cli.AppConfig.load", return_value=config),
+            patch("igp_ride.cli.RideSyncService", return_value=service),
+        ):
+            exit_code = main(["--format", "json", "icu", "sync", "--dry-run"])
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        payload = json.loads(captured.out)
+        assert payload["command"] == "icu.sync"
+        assert payload["mode"] == "dry-run"
+        assert payload["summary"]["dry_run"] is True
+
 
 class TestListOutput:
     def test_main_passes_list_sort_options(self):
@@ -498,6 +608,24 @@ class TestListOutput:
         assert "570 m" in second_row
         assert first_row.index("215 W") == second_row.index("155 W")
 
+    def test_list_json_outputs_activities(self, tmp_path: Path, capsys):
+        config = _make_config(tmp_path)
+        service = MagicMock()
+        service.list_activities.return_value = [_make_activity()]
+
+        with (
+            patch("igp_ride.cli.AppConfig.load", return_value=config),
+            patch("igp_ride.cli.RideSyncService", return_value=service),
+        ):
+            exit_code = main(["--format", "json", "list", "--limit", "1"])
+
+        payload = json.loads(capsys.readouterr().out)
+        assert exit_code == 0
+        assert payload["command"] == "list"
+        assert payload["count"] == 1
+        assert payload["activities"][0]["ride_id"] == 123456
+        assert payload["activities"][0]["distance_m"] == 45200
+
 
 class TestShowOutput:
     def test_show_last_uses_structured_fields(self, tmp_path: Path, capsys):
@@ -529,3 +657,46 @@ class TestShowOutput:
         assert "Cadence: 86 rpm | max 112 rpm" in captured.out
         assert "Speed: 29.4 km/h | max 51.2 km/h" in captured.out
         assert "Calories: 1,024 kcal" in captured.out
+
+    def test_show_json_outputs_activity(self, tmp_path: Path, capsys):
+        config = _make_config(tmp_path)
+        activity = _make_activity()
+        service = MagicMock()
+        service.get_latest_activity.return_value = activity
+
+        with (
+            patch("igp_ride.cli.AppConfig.load", return_value=config),
+            patch("igp_ride.cli.RideSyncService", return_value=service),
+        ):
+            exit_code = main(["--format", "json", "show", "last"])
+
+        payload = json.loads(capsys.readouterr().out)
+        assert exit_code == 0
+        assert payload["command"] == "show"
+        assert payload["activity"]["ride_id"] == 123456
+        assert payload["activity"]["avg_heart_rate_bpm"] == 148
+
+
+class TestResetOutput:
+    def test_reset_json_outputs_summary(self, tmp_path: Path, capsys):
+        config = _make_config(tmp_path)
+        service = MagicMock()
+        service.reset.return_value = [
+            ResetResult(path=config.data_dir, status="deleted"),
+            ResetResult(path=config.session_file.parent, status="not_found"),
+        ]
+
+        with (
+            patch("igp_ride.cli.AppConfig.load", return_value=config),
+            patch("igp_ride.cli.RideSyncService", return_value=service),
+        ):
+            exit_code = main(["--format", "json", "reset", "--yes"])
+
+        payload = json.loads(capsys.readouterr().out)
+        assert exit_code == 0
+        assert payload["command"] == "reset"
+        assert payload["summary"] == {
+            "deleted": 1,
+            "not_found": 1,
+            "failed": 0,
+        }

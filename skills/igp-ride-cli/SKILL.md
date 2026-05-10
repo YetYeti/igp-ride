@@ -79,10 +79,23 @@ uv run igp-ride --help
 
 ## 基本使用流程
 
+全局参数必须放在子命令前：
+
+```bash
+igp-ride --format json list
+igp-ride --no-input update
+```
+
+说明：
+
+* `--format text|json`：选择输出格式，默认 `text`。JSON 模式 stdout 只输出 JSON，进度和警告输出到 stderr；
+* `--no-input`：禁止交互输入。缺少必要凭据或确认参数时直接失败，适合 agent 和自动化调用。
+
 ### 1. 登录 IGPSPORT
 
 ```bash
 igp-ride login
+printf '%s' "$IGP_PASSWORD" | igp-ride --no-input login --username "$IGP_USERNAME" --password-stdin
 ```
 
 该命令会交互输入 IGPSPORT 用户名和密码，并将凭据加密保存到本地文件。
@@ -142,6 +155,7 @@ igp-ride show 123456
 
 ```bash
 igp-ride login
+igp-ride login --username YOUR_USERNAME --password-stdin
 ```
 
 用途：
@@ -150,7 +164,17 @@ igp-ride login
 * 保存本地凭据；
 * 保存 session 数据。
 
-无参数。
+可用参数：
+
+```bash
+--username USERNAME
+--password-stdin
+```
+
+说明：
+
+* `--username`：指定 IGPSPORT 用户名；
+* `--password-stdin`：从标准输入读取 IGPSPORT 密码，避免密码出现在命令参数中。
 
 ### 退出登录
 
@@ -292,7 +316,7 @@ igp-ride icu login
 非交互式传入 API key：
 
 ```bash
-igp-ride icu login --api-key YOUR_API_KEY
+printf '%s' "$IGP_RIDE_ICU_API_KEY" | igp-ride --no-input icu login --api-key-stdin
 ```
 
 也可以使用环境变量：
@@ -306,6 +330,16 @@ export IGP_RIDE_ICU_API_KEY="your_api_key"
 ```bash
 export INTERVALS_ICU_API_KEY="your_api_key"
 ```
+
+可用参数：
+
+```bash
+--api-key-stdin
+```
+
+说明：
+
+* `--api-key-stdin`：从标准输入读取 API key，避免 key 出现在 shell history 或进程参数中。
 
 ### 退出 Intervals.icu
 

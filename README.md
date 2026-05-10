@@ -92,15 +92,37 @@ igp-ride show 123456
 
 ## 命令
 
+全局参数需放在子命令前：
+
+- `--format text|json`：选择输出格式，默认 `text`。JSON 模式下 stdout 只输出 JSON，进度和警告输出到 stderr。
+- `--no-input`：禁止交互输入。缺少必要凭据或确认参数时直接失败。
+
+示例：
+
+```bash
+igp-ride --format json list
+igp-ride --no-input update
+```
+
 ### `login`
 
 ```bash
 igp-ride login
+igp-ride login --username YOUR_USERNAME --password-stdin
 ```
 
 登录 IGPSPORT，并保存本地凭据和 session 数据。
 
-无参数。
+参数：
+
+- `--username USERNAME`：指定 IGPSPORT 用户名。
+- `--password-stdin`：从标准输入读取 IGPSPORT 密码，适合自动化和 agent 调用。
+
+非交互示例：
+
+```bash
+printf '%s' "$IGP_PASSWORD" | igp-ride --no-input login --username "$IGP_USERNAME" --password-stdin
+```
 
 ### `logout`
 
@@ -184,14 +206,20 @@ igp-ride show 123456
 
 ```bash
 igp-ride icu login
-igp-ride icu login --api-key YOUR_API_KEY
+igp-ride icu login --api-key-stdin
 ```
 
-保存 Intervals.icu API key。不传 `--api-key` 时会安全地交互输入。
+保存 Intervals.icu API key。不传 `--api-key-stdin` 时会安全地交互输入。
 
 参数：
 
-- `--api-key API_KEY`：非交互式传入 API key。
+- `--api-key-stdin`：从标准输入读取 API key，避免 key 出现在 shell history 或进程参数中。
+
+非交互示例：
+
+```bash
+printf '%s' "$IGP_RIDE_ICU_API_KEY" | igp-ride --no-input icu login --api-key-stdin
+```
 
 ### `icu logout`
 
