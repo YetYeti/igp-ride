@@ -12,7 +12,6 @@ import requests
 
 from igp_ride.client import AuthenticationError, DataSyncError
 from igp_ride.config import (
-    DEFAULT_ICU_BASE_URL,
     AppConfig,
     ConfigurationError,
     clear_icu_config,
@@ -142,27 +141,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Sync local FIT activities to Intervals.icu",
     )
     icu_subparsers = icu_parser.add_subparsers(dest="icu_command", required=True)
-    icu_configure_parser = icu_subparsers.add_parser(
-        "configure",
-        help="Save Intervals.icu API configuration",
+    icu_login_parser = icu_subparsers.add_parser(
+        "login",
+        help="Save Intervals.icu API key",
     )
-    icu_configure_parser.add_argument(
+    icu_login_parser.add_argument(
         "--api-key",
         help="Intervals.icu API key. If omitted, prompts securely.",
     )
-    icu_configure_parser.add_argument(
-        "--athlete-id",
-        default="0",
-        help="Intervals.icu athlete id, e.g. i123456. Default: 0",
-    )
-    icu_configure_parser.add_argument(
-        "--base-url",
-        default=DEFAULT_ICU_BASE_URL,
-        help=f"Intervals.icu API base URL. Default: {DEFAULT_ICU_BASE_URL}",
-    )
     icu_subparsers.add_parser(
-        "clear",
-        help="Clear saved Intervals.icu API configuration",
+        "logout",
+        help="Clear saved Intervals.icu API key",
     )
     icu_subparsers.add_parser(
         "status",
@@ -436,10 +425,10 @@ def cmd_daemon(args: argparse.Namespace) -> int:
 
 
 def cmd_icu(args: argparse.Namespace) -> int:
-    if args.icu_command == "configure":
-        return cmd_icu_configure(args.api_key, args.athlete_id, args.base_url)
-    if args.icu_command == "clear":
-        return cmd_icu_clear()
+    if args.icu_command == "login":
+        return cmd_icu_login(args.api_key)
+    if args.icu_command == "logout":
+        return cmd_icu_logout()
     if args.icu_command == "status":
         return cmd_icu_status()
     if args.icu_command == "sync":
@@ -447,44 +436,32 @@ def cmd_icu(args: argparse.Namespace) -> int:
     raise ValueError(f"Unknown icu command: {args.icu_command}")
 
 
-def cmd_icu_configure(
-    api_key: str | None,
-    athlete_id: str,
-    base_url: str,
-) -> int:
+def cmd_icu_login(api_key: str | None) -> int:
     final_api_key = api_key or getpass("Intervals.icu API key: ").strip()
-    config_path = save_icu_config(
-        api_key=final_api_key,
-        athlete_id=athlete_id,
-        base_url=base_url,
-    )
+    config_path = save_icu_config(api_key=final_api_key)
 
-    _print_title("ICU Configure")
+    _print_title("ICU Login")
     _print_result("success")
-    _print_field("Athlete ID", athlete_id)
-    _print_field("Base URL", base_url)
     _print_field("Path", format_path(config_path))
     _print_next("igp-ride icu status")
     return 0
 
 
-def cmd_icu_clear() -> int:
+def cmd_icu_logout() -> int:
     clear_icu_config()
-    _print_title("ICU Clear")
+    _print_title("ICU Logout")
     _print_result("success")
-    _print_field("Configured", False)
+    _print_field("Logged In", False)
     return 0
 
 
 def cmd_icu_status() -> int:
     config = AppConfig.load()
     _print_title("ICU Status")
-    _print_field("Configured", bool(config.icu_api_key))
-    _print_field("Athlete ID", config.icu_athlete_id)
-    _print_field("Base URL", config.icu_base_url)
+    _print_field("Logged In", bool(config.icu_api_key))
     if not config.icu_api_key:
         _print_field("Authenticated", False)
-        _print_tip("Run igp-ride icu configure")
+        _print_tip("Run igp-ride icu login")
         return 0
 
     client = IntervalsIcuClient(
@@ -958,8 +935,8 @@ def _command_title(args: argparse.Namespace) -> str:
 
 def _icu_command_title(args: argparse.Namespace) -> str:
     titles: Final[dict[str, str]] = {
-        "configure": "ICU Configure",
-        "clear": "ICU Clear",
+        "login": "ICU Login",
+        "logout": "ICU Logout",
         "status": "ICU Status",
         "sync": "ICU Sync",
     }

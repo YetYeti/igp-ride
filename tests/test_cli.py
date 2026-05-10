@@ -185,61 +185,46 @@ class TestUpdateOutput:
 
 
 class TestIcuOutput:
-    def test_main_routes_icu_configure_options(self):
-        with patch("igp_ride.cli.cmd_icu_configure", return_value=0) as cmd:
+    def test_main_routes_icu_login_options(self):
+        with patch("igp_ride.cli.cmd_icu_login", return_value=0) as cmd:
             exit_code = main(
                 [
                     "icu",
-                    "configure",
+                    "login",
                     "--api-key",
                     "secret",
-                    "--athlete-id",
-                    "i123456",
-                    "--base-url",
-                    "https://icu.example/api",
                 ]
             )
 
         assert exit_code == 0
-        cmd.assert_called_once_with(
-            "secret",
-            "i123456",
-            "https://icu.example/api",
-        )
+        cmd.assert_called_once_with("secret")
 
-    def test_icu_configure_saves_config_without_printing_key(
-        self, tmp_path: Path, capsys
-    ):
+    def test_icu_login_saves_config_without_printing_key(self, tmp_path: Path, capsys):
         config_file = tmp_path / "icu.json"
 
         with patch("igp_ride.cli.save_icu_config", return_value=config_file) as save:
-            from igp_ride.cli import cmd_icu_configure
+            from igp_ride.cli import cmd_icu_login
 
-            exit_code = cmd_icu_configure("secret", "i123456", "https://icu.example/api")
+            exit_code = cmd_icu_login("secret")
 
         captured = capsys.readouterr()
         assert exit_code == 0
-        save.assert_called_once_with(
-            api_key="secret",
-            athlete_id="i123456",
-            base_url="https://icu.example/api",
-        )
+        save.assert_called_once_with(api_key="secret")
         assert "secret" not in captured.out
-        assert "== ICU Configure ==" in captured.out
-        assert "Athlete ID: i123456" in captured.out
+        assert "== ICU Login ==" in captured.out
         assert "Next: igp-ride icu status" in captured.out
 
-    def test_icu_clear_removes_config(self, capsys):
-        from igp_ride.cli import cmd_icu_clear
+    def test_icu_logout_removes_config(self, capsys):
+        from igp_ride.cli import cmd_icu_logout
 
         with patch("igp_ride.cli.clear_icu_config") as clear:
-            exit_code = cmd_icu_clear()
+            exit_code = cmd_icu_logout()
 
         captured = capsys.readouterr()
         assert exit_code == 0
         clear.assert_called_once()
-        assert "== ICU Clear ==" in captured.out
-        assert "Configured: no" in captured.out
+        assert "== ICU Logout ==" in captured.out
+        assert "Logged In: no" in captured.out
 
     def test_icu_status_without_key_prints_not_configured(self, tmp_path: Path, capsys):
         from igp_ride.cli import cmd_icu_status
@@ -252,9 +237,9 @@ class TestIcuOutput:
         captured = capsys.readouterr()
         assert exit_code == 0
         assert "== ICU Status ==" in captured.out
-        assert "Configured: no" in captured.out
+        assert "Logged In: no" in captured.out
         assert "Authenticated: no" in captured.out
-        assert "Tip: Run igp-ride icu configure" in captured.out
+        assert "Tip: Run igp-ride icu login" in captured.out
 
     def test_icu_status_checks_remote_athlete(self, tmp_path: Path, capsys):
         from igp_ride.cli import cmd_icu_status
@@ -290,7 +275,7 @@ class TestIcuOutput:
             athlete_id="i123456",
             base_url="https://icu.example/api",
         )
-        assert "Configured: yes" in captured.out
+        assert "Logged In: yes" in captured.out
         assert "Authenticated: yes" in captured.out
         assert "Remote Athlete ID: i123456" in captured.out
         assert "Name: Tester" in captured.out
