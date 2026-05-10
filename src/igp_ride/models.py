@@ -50,14 +50,3 @@ class SyncSummary:
     updated_activities: int = 0
     activities_skipped: int = 0
     fit_files_failed: int = 0
-
-
-@dataclass(slots=True)
-class PeriodStats:
-    period: str
-    count: int = 0
-    total_distance: float = 0.0
-    total_moving_time: float = 0.0
-    avg_speed: float = 0.0
-    avg_power: float = 0.0
-    total_ascent: int = 0

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from igp_ride.models import Activity, PeriodStats, SyncSummary
+from igp_ride.models import Activity, SyncSummary
 
 
 class TestActivity:
@@ -60,30 +60,3 @@ class TestSyncSummary:
         )
         assert s.remote_fetched == 10
         assert s.new_activities == 3
-
-
-class TestPeriodStats:
-    def test_default_values(self):
-        s = PeriodStats(period="2026-03")
-        assert s.period == "2026-03"
-        assert s.count == 0
-        assert s.total_distance == 0.0
-        assert s.total_moving_time == 0.0
-        assert s.avg_speed == 0.0
-        assert s.avg_power == 0.0
-        assert s.total_ascent == 0
-
-    def test_values(self):
-        s = PeriodStats(
-            period="2026-01",
-            count=21,
-            total_distance=832400.0,
-            total_moving_time=96240.0,
-            avg_speed=8.56,
-            avg_power=156.0,
-            total_ascent=30,
-        )
-        assert s.period == "2026-01"
-        assert s.count == 21
-        assert s.total_distance == 832400.0
-        assert s.avg_speed == 8.56

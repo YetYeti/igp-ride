@@ -5,7 +5,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Literal
 
-from igp_ride.models import Activity, PeriodStats
+from igp_ride.models import Activity
 from igp_ride.utils import ensure_dir, get_logger
 
 
@@ -171,58 +171,6 @@ class ActivityDatabase:
             (icu_external_id, error, ride_id),
         )
         self._get_connection().commit()
-
-    def get_stats(
-        self,
-        *,
-        group_by: str = "month",
-        year: int | None = None,
-        activity_type: str | None = None,
-    ) -> list[PeriodStats]:
-        if group_by == "year":
-            period_expr = "strftime('%Y', start_time)"
-        else:
-            period_expr = "strftime('%Y-%m', start_time)"
-
-        query = f"""
-            SELECT
-                {period_expr} AS period,
-                COUNT(*) AS count,
-                COALESCE(SUM(total_distance), 0) AS total_distance,
-                COALESCE(SUM(total_moving_time), 0) AS total_moving_time,
-                CASE WHEN SUM(total_distance) > 0
-                    THEN SUM(total_distance * avg_speed) / SUM(total_distance)
-                    ELSE 0 END AS avg_speed,
-                CASE WHEN SUM(total_distance) > 0
-                    THEN SUM(total_distance * avg_power) / SUM(total_distance)
-                    ELSE 0 END AS avg_power,
-                COALESCE(SUM(total_ascent), 0) AS total_ascent
-            FROM activities
-            WHERE start_time IS NOT NULL
-        """
-        params: list[object] = []
-        if year is not None:
-            query += " AND strftime('%Y', start_time) = ?"
-            params.append(str(year))
-        if activity_type is not None:
-            query += " AND title = ?"
-            params.append(activity_type)
-        query += f" GROUP BY {period_expr} ORDER BY period DESC"
-
-        cursor = self._get_connection().cursor()
-        cursor.execute(query, tuple(params))
-        return [
-            PeriodStats(
-                period=row["period"],
-                count=row["count"],
-                total_distance=row["total_distance"],
-                total_moving_time=row["total_moving_time"],
-                avg_speed=row["avg_speed"],
-                avg_power=row["avg_power"],
-                total_ascent=row["total_ascent"],
-            )
-            for row in cursor.fetchall()
-        ]
 
     def upsert(self, activity: Activity) -> None:
         logger.debug(

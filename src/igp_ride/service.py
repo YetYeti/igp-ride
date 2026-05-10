@@ -17,7 +17,7 @@ from igp_ride.config import (
 
 from igp_ride.database import ActivityDatabase, ActivitySortKey
 from igp_ride.icu_client import ICUClientError, IntervalsIcuClient
-from igp_ride.models import Activity, PeriodStats, SyncSummary
+from igp_ride.models import Activity, SyncSummary
 from igp_ride.parser import FitParseError, normalize_session_data, parse_fit_file
 from igp_ride.utils import get_logger
 
@@ -391,17 +391,6 @@ class RideSyncService:
             since=since,
             sort_by=sort_by,
             descending=descending,
-        )
-
-    def get_stats(
-        self,
-        *,
-        group_by: str = "month",
-        year: int | None = None,
-        activity_type: str | None = None,
-    ) -> list[PeriodStats]:
-        return self.db.get_stats(
-            group_by=group_by, year=year, activity_type=activity_type
         )
 
     def sync_icu(

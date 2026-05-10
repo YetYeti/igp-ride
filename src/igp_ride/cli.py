@@ -17,19 +17,9 @@ from igp_ride.config import (
     clear_icu_config,
     save_icu_config,
 )
-from igp_ride.daemon import (
-    DEFAULT_INTERVAL,
-    DaemonError,
-    get_daemon_status,
-    is_daemon_management_supported,
-    parse_interval_spec,
-    run_daemon_loop,
-    start_daemon_process,
-    stop_daemon_process,
-)
 from igp_ride.database import ActivitySortKey, DatabaseError
 from igp_ride.icu_client import ICUClientError, IntervalsIcuClient
-from igp_ride.models import Activity, PeriodStats, SyncSummary
+from igp_ride.models import Activity, SyncSummary
 from igp_ride.service import IcuSyncSummary, ResetResult, RideSyncService, SyncProgress
 from igp_ride.utils import setup_logging
 
@@ -200,9 +190,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     except DataSyncError as exc:
         _print_error_block(_command_title(args), str(exc))
         return 6
-    except DaemonError as exc:
-        _print_error_block(_command_title(args), str(exc))
-        return 9
     except FileNotFoundError as exc:
         _print_error_block(_command_title(args), f"File error: {exc}")
         return 7
@@ -231,11 +218,7 @@ def cmd_login() -> int:
 def cmd_update(force_full: bool) -> int:
     config = AppConfig.load(require_credentials=True)
     service = RideSyncService(config)
-    progress = "auto"
-    tty_progress = progress == "auto" and sys.stderr.isatty()
-    plain_progress = progress == "plain" or (
-        progress == "auto" and not sys.stderr.isatty()
-    )
+    tty_progress = sys.stderr.isatty()
     current_stage: str | None = None
     last_plain_percent = -1
     _print_title("Update")
@@ -268,9 +251,6 @@ def cmd_update(force_full: bool) -> int:
                 flush=True,
             )
             current_stage = "processing"
-            return
-
-        if not plain_progress:
             return
 
         if p.stage == "fetching":
@@ -331,18 +311,6 @@ def cmd_logout(yes: bool) -> int:
     _print_result("success")
     _print_field("Path", format_path(config.session_file))
     return 0
-
-
-def cmd_daemon(args: argparse.Namespace) -> int:
-    if args.daemon_command == "start":
-        return cmd_daemon_start(args.interval, args.hook)
-    if args.daemon_command == "run":
-        return cmd_daemon_run(args.interval, args.hook, args.once)
-    if args.daemon_command == "stop":
-        return cmd_daemon_stop()
-    if args.daemon_command == "status":
-        return cmd_daemon_status()
-    raise ValueError(f"Unknown daemon command: {args.daemon_command}")
 
 
 def cmd_icu(args: argparse.Namespace) -> int:
@@ -434,119 +402,6 @@ def cmd_icu_sync(dry_run: bool) -> int:
     _print_icu_sync_summary(summary)
     if dry_run:
         _print_next("igp-ride icu sync")
-    return 0
-
-
-def cmd_daemon_start(interval: str, hook_command: str | None) -> int:
-    _ensure_daemon_management_supported()
-    config = AppConfig.load(require_credentials=True)
-    interval_seconds = parse_interval_spec(interval)
-    paths = start_daemon_process(
-        config,
-        interval_spec=interval,
-        hook_command=hook_command,
-    )
-    _print_title("Daemon Start")
-    _print_result("success")
-    _print_field("Backend", "LaunchAgent")
-    _print_field("Interval", _format_interval_display(interval_seconds))
-    _print_field("Hook", hook_command or "<none>")
-    _print_field("Agent", format_path(paths.launch_agent_file))
-    _print_field("Log", format_path(paths.log_file))
-    _print_next("igp-ride daemon status")
-    return 0
-
-
-def cmd_daemon_run(interval: str, hook_command: str | None, once: bool) -> int:
-    config = AppConfig.load(require_credentials=True)
-    interval_seconds = parse_interval_spec(interval)
-    _print_title("Daemon Run")
-
-    if once:
-        exit_code = run_daemon_loop(
-            config,
-            interval_seconds=interval_seconds,
-            hook_command=hook_command,
-            once=True,
-        )
-        state = get_daemon_status(config)
-        _print_result("success" if exit_code == 0 else "error")
-        _print_field("Mode", "foreground-once")
-        _print_field("Interval", _format_interval_display(interval_seconds))
-        _print_field("Hook", hook_command or "<none>")
-        if _has_sync_summary_state(state):
-            _print_summary(_summary_items_from_state(state))
-        _print_field("Hook Triggered", _as_bool(state.get("last_hook_triggered")))
-        last_error = _as_str_state(state.get("last_error"))
-        if last_error:
-            _print_error_line(last_error)
-        return exit_code
-
-    _print_result("running")
-    _print_field("Mode", "foreground")
-    _print_field("Interval", _format_interval_display(interval_seconds))
-    _print_field("Hook", hook_command or "<none>")
-    _print_tip("Press Ctrl-C to stop")
-    return run_daemon_loop(
-        config,
-        interval_seconds=interval_seconds,
-        hook_command=hook_command,
-        once=False,
-    )
-
-
-def cmd_daemon_stop() -> int:
-    _ensure_daemon_management_supported()
-    config = AppConfig.load()
-    stopped, paths = stop_daemon_process(config)
-    _print_title("Daemon Stop")
-    _print_result("success" if stopped else "no-op")
-    _print_field("Running", False)
-    _print_field("Log", format_path(paths.log_file))
-    return 0
-
-
-def cmd_daemon_status() -> int:
-    _ensure_daemon_management_supported()
-    config = AppConfig.load()
-    state = get_daemon_status(config)
-    running = _as_bool(state.get("running"))
-    active = _as_bool(state.get("active"))
-    pid = _as_int_state(state.get("pid"))
-    interval_seconds = _as_int_state(state.get("interval_seconds"))
-    hook_command = _as_str_state(state.get("hook_command"))
-    log_file = _as_str_state(state.get("log_file"))
-    backend = _as_str_state(state.get("backend"))
-    launch_agent_file = _as_str_state(state.get("launch_agent_file"))
-    last_status = _as_str_state(state.get("last_status"))
-    last_run_at = _as_str_state(state.get("last_run_at"))
-    last_error = _as_str_state(state.get("last_error"))
-    hook_triggered = _as_bool(state.get("last_hook_triggered"))
-
-    _print_title("Daemon Status")
-    _print_field("Running", running)
-    if backend:
-        _print_field("Backend", backend)
-    if launch_agent_file:
-        _print_field("Agent", format_path(Path(launch_agent_file)))
-    _print_field("Active", active)
-    if pid > 0:
-        _print_field("PID", pid)
-    if interval_seconds > 0:
-        _print_field("Interval", _format_interval_display(interval_seconds))
-    _print_field("Hook", hook_command or "<none>")
-    if log_file:
-        _print_field("Log", format_path(Path(log_file)))
-    if last_status:
-        _print_field("Last Status", last_status)
-    if last_run_at:
-        _print_field("Last Run", _format_local_timestamp(last_run_at))
-    if _has_sync_summary_state(state):
-        _print_summary(_summary_items_from_state(state))
-    if hook_triggered:
-        _print_field("Last Hook", "triggered")
-    if last_error:
-        _print_error_line(last_error)
     return 0
 
 
@@ -648,58 +503,6 @@ def cmd_show(activity_id: str) -> int:
 
     print_activity(activity)
     return 0
-
-
-def cmd_stats(
-    group_by: str, year: int | None, activity_type: str | None, do_update: bool
-) -> int:
-    config = AppConfig.load(require_credentials=do_update)
-    service = RideSyncService(config)
-    try:
-        if do_update:
-            service.sync(force_full=False)
-        stats = service.get_stats(
-            group_by=group_by, year=year, activity_type=activity_type
-        )
-    finally:
-        service.close()
-
-    _print_title("Ride Statistics")
-    if not stats:
-        _print_field("Count", 0)
-        _print_tip("Run igp-ride update to download activities first")
-        return 0
-
-    print_stats(stats)
-    return 0
-
-
-def print_stats(stats: list[PeriodStats]) -> None:
-    total_count = sum(s.count for s in stats)
-    total_distance = sum(s.total_distance for s in stats)
-    total_time = sum(s.total_moving_time for s in stats)
-    total_ascent = sum(s.total_ascent for s in stats)
-
-    _print_field("Periods", len(stats))
-    _print_field("Rides", total_count)
-    _print_field("Distance", f"{total_distance / 1000:,.1f} km")
-    _print_field("Time", f"{total_time / 3600:.1f} h")
-    _print_field("Ascent", f"{total_ascent:,} m")
-    print()
-    print(
-        f"{'PERIOD':<8}   {'CNT':>2}   {'DISTANCE':>9}   "
-        f"{'TIME':>6}   {'AVG_SPD':>9}   {'AVG_PWR':>7}   {'ASCENT':>8}"
-    )
-    for s in stats:
-        distance = f"{s.total_distance / 1000:,.1f} km"
-        time_str = _format_list_duration_display(s.total_moving_time)
-        avg_spd = f"{to_kmh(s.avg_speed):.1f} km/h" if s.avg_speed > 0 else "-"
-        avg_pwr = f"{s.avg_power:.0f} W" if s.avg_power > 0 else "-"
-        elev = f"{s.total_ascent:,} m"
-        print(
-            f"{s.period:<8}   {s.count:>2}   {distance:>9}   "
-            f"{time_str:>6}   {avg_spd:>9}   {avg_pwr:>7}   {elev:>8}"
-        )
 
 
 def print_reset_summary(results: list[ResetResult]) -> None:
@@ -810,14 +613,6 @@ def format_path(path: Path) -> str:
         return str(abs_path)
 
 
-def _as_bool(value: object) -> bool:
-    return bool(value)
-
-
-def _as_int_state(value: object) -> int:
-    return value if isinstance(value, int) else 0
-
-
 def _as_str_state(value: object) -> str:
     return value if isinstance(value, str) else ""
 
@@ -848,15 +643,6 @@ def _icu_command_title(args: argparse.Namespace) -> str:
         "sync": "ICU Sync",
     }
     return titles.get(_as_str_state(getattr(args, "icu_command", "")), "ICU")
-
-
-def _ensure_daemon_management_supported() -> None:
-    if is_daemon_management_supported():
-        return
-    raise DaemonError(
-        "Daemon start/stop/status is only supported on macOS. "
-        "Use `igp-ride update` or `igp-ride daemon run --once` instead."
-    )
 
 
 def _print_title(title: str, *, file: TextIO | None = None) -> None:
@@ -954,35 +740,6 @@ def _print_icu_sync_summary(summary: IcuSyncSummary) -> None:
     )
 
 
-def _summary_items_from_state(state: dict[str, object]) -> list[tuple[str, object]]:
-    return [
-        ("remote", _as_int_state(state.get("last_remote_fetched"))),
-        ("new", _as_int_state(state.get("last_new_activities"))),
-        ("updated", _as_int_state(state.get("last_updated_activities"))),
-        ("skipped", _as_int_state(state.get("last_activities_skipped"))),
-        ("fit_failed", _as_int_state(state.get("last_fit_files_failed"))),
-    ]
-
-
-def _has_sync_summary_state(state: dict[str, object]) -> bool:
-    last_run_at = _as_str_state(state.get("last_run_at"))
-    if not last_run_at:
-        return False
-    if _as_str_state(state.get("last_status")) == "ok":
-        return True
-    return any(value != 0 for _, value in _summary_items_from_state(state))
-
-
-def _format_local_timestamp(value: str) -> str:
-    try:
-        timestamp = datetime.fromisoformat(value)
-    except ValueError:
-        return value
-    if timestamp.tzinfo is None:
-        return timestamp.strftime("%Y-%m-%d %H:%M:%S")
-    return timestamp.astimezone().strftime("%Y-%m-%d %H:%M:%S")
-
-
 def _format_activity_date(value: datetime | None) -> str:
     if value is None:
         return "unknown"
@@ -997,10 +754,6 @@ def _format_activity_timestamp(value: datetime | None) -> str:
     if value.tzinfo is None:
         return value.strftime("%Y-%m-%d %H:%M:%S")
     return value.astimezone().strftime("%Y-%m-%d %H:%M:%S")
-
-
-def _join_non_empty(parts: Sequence[str]) -> str:
-    return " ".join(part for part in parts if part)
 
 
 def _format_avg_max_metric(
@@ -1042,19 +795,6 @@ def _format_list_duration_display(seconds: float) -> str:
     if hours > 0:
         return f"{hours}:{minutes:02d}"
     return str(minutes)
-
-
-def _format_interval_display(seconds: int) -> str:
-    total_seconds = max(seconds, 0)
-    hours, remainder = divmod(total_seconds, 3600)
-    minutes, secs = divmod(remainder, 60)
-    if hours > 0 and minutes > 0:
-        return f"{hours}h{minutes}m"
-    if hours > 0:
-        return f"{hours}h"
-    if minutes > 0:
-        return f"{minutes}m"
-    return f"{secs}s"
 
 
 if __name__ == "__main__":
