@@ -47,6 +47,7 @@ description: 使用 igp-ride 命令行工具同步 IGPSPORT 骑行活动到本�
 
 ```bash
 uv tool install git+https://github.com/YetYeti/igp-ride@main
+```
 
 
 ### 升级已安装版本
