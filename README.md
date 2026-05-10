@@ -236,27 +236,19 @@ igp-ride icu sync
 
 ## 配置与数据位置
 
-`igp-ride` 使用当前平台对应的用户目录。
+`igp-ride` 使用当前平台对应的用户目录，主要分为三类：
 
-macOS 和 Linux 默认路径：
+- 配置目录：保存登录信息索引、Intervals.icu 配置等小型配置文件。
+- 数据目录：保存本地 SQLite 数据库和已下载的 FIT 文件。
+- 日志目录：保存运行日志。
+
+macOS 和 Linux 默认使用：
 
 - 配置目录：`~/.config/igp-ride`
-- Session 文件：`~/.config/igp-ride/session.json`
-- ICU 配置文件：`~/.config/igp-ride/icu.json`
 - 数据目录：`~/.local/share/igp-ride`
-- SQLite 数据库：`~/.local/share/igp-ride/rides.db`
-- FIT 文件目录：`~/.local/share/igp-ride/fit`
-- 日志文件：`~/.local/share/igp-ride/logs/igp-ride.log`
+- 日志目录：`~/.local/share/igp-ride/logs`
 
-Windows 路径由 `platformdirs` 解析：
-
-- 配置目录：`%APPDATA%\igp-ride`
-- Session 文件：`%APPDATA%\igp-ride\session.json`
-- Session 数据文件：`%APPDATA%\igp-ride\session_data.json`
-- ICU 配置文件：`%APPDATA%\igp-ride\icu.json`
-- 数据目录：`%LOCALAPPDATA%\igp-ride`
-- SQLite 数据库：`%LOCALAPPDATA%\igp-ride\rides.db`
-- FIT 文件目录：`%LOCALAPPDATA%\igp-ride\fit`
+Windows 路径由 `platformdirs` 解析，通常位于 `%APPDATA%`、`%LOCALAPPDATA%` 下的 `igp-ride` 目录。
 
 ## 环境变量
 
