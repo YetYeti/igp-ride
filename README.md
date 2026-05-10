@@ -281,14 +281,6 @@ Intervals.icu 同步默认使用 API key 对应的当前用户。
 - `8`：请求的活动不存在。
 - `10`：`reset` 执行完成，但至少有一项删除失败。
 
-## 开发检查
-
-```bash
-uv run pytest
-uv run ruff check
-uv run basedpyright
-```
-
 ## License
 
 MIT

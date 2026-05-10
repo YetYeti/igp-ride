@@ -559,16 +559,6 @@ igp-ride reset
 igp-ride reset --yes
 ```
 
-## 开发检查命令
-
-在项目开发时使用：
-
-```bash
-uv run pytest
-uv run ruff check
-uv run basedpyright
-```
-
 ## 操作原则
 
 * 优先使用增量同步：`igp-ride update`
