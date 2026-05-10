@@ -134,6 +134,12 @@ igp-ride icu status
 igp-ride icu logout
 ```
 
+该命令会要求输入 `LOGOUT` 确认；如需跳过确认：
+
+```bash
+igp-ride icu logout --yes
+```
+
 先 dry-run 查看会同步哪些本地 FIT 活动：
 
 ```bash

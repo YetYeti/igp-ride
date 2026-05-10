@@ -218,13 +218,35 @@ class TestIcuOutput:
         from igp_ride.cli import cmd_icu_logout
 
         with patch("igp_ride.cli.clear_icu_config") as clear:
-            exit_code = cmd_icu_logout()
+            exit_code = cmd_icu_logout(yes=True)
 
         captured = capsys.readouterr()
         assert exit_code == 0
         clear.assert_called_once()
         assert "== ICU Logout ==" in captured.out
         assert "Logged In: no" in captured.out
+
+    def test_icu_logout_requires_confirmation(self, capsys):
+        from igp_ride.cli import cmd_icu_logout
+
+        with (
+            patch("igp_ride.cli.clear_icu_config") as clear,
+            patch("builtins.input", return_value="no"),
+        ):
+            exit_code = cmd_icu_logout(yes=False)
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        clear.assert_not_called()
+        assert "This will remove the saved Intervals.icu API key." in captured.out
+        assert "Result: cancelled" in captured.out
+
+    def test_main_routes_icu_logout_yes(self):
+        with patch("igp_ride.cli.cmd_icu_logout", return_value=0) as cmd:
+            exit_code = main(["icu", "logout", "--yes"])
+
+        assert exit_code == 0
+        cmd.assert_called_once_with(True)
 
     def test_icu_status_without_key_prints_not_configured(self, tmp_path: Path, capsys):
         from igp_ride.cli import cmd_icu_status

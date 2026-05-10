@@ -149,9 +149,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--api-key",
         help="Intervals.icu API key. If omitted, prompts securely.",
     )
-    icu_subparsers.add_parser(
+    icu_logout_parser = icu_subparsers.add_parser(
         "logout",
         help="Clear saved Intervals.icu API key",
+    )
+    icu_logout_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip interactive confirmation",
     )
     icu_subparsers.add_parser(
         "status",
@@ -428,7 +433,7 @@ def cmd_icu(args: argparse.Namespace) -> int:
     if args.icu_command == "login":
         return cmd_icu_login(args.api_key)
     if args.icu_command == "logout":
-        return cmd_icu_logout()
+        return cmd_icu_logout(args.yes)
     if args.icu_command == "status":
         return cmd_icu_status()
     if args.icu_command == "sync":
@@ -447,9 +452,18 @@ def cmd_icu_login(api_key: str | None) -> int:
     return 0
 
 
-def cmd_icu_logout() -> int:
-    clear_icu_config()
+def cmd_icu_logout(yes: bool) -> int:
     _print_title("ICU Logout")
+    if not yes:
+        _print_warning("This will remove the saved Intervals.icu API key.")
+        _print_warning("Local activities and ICU sync history will not be deleted.")
+        print()
+        confirm = input("Type LOGOUT to confirm: ").strip()
+        if confirm != "LOGOUT":
+            _print_result("cancelled")
+            return 0
+
+    clear_icu_config()
     _print_result("success")
     _print_field("Logged In", False)
     return 0
