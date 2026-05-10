@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import date, datetime
+from datetime import datetime
 from getpass import getpass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -115,16 +115,6 @@ def build_parser() -> argparse.ArgumentParser:
     icu_sync_parser = icu_subparsers.add_parser(
         "sync",
         help="Upload local downloaded FIT files to Intervals.icu",
-    )
-    icu_sync_parser.add_argument(
-        "--since",
-        type=_parse_date_arg,
-        help="Only sync activities on or after YYYY-MM-DD",
-    )
-    icu_sync_parser.add_argument(
-        "--retry-failed",
-        action="store_true",
-        help="Retry activities that previously failed to upload",
     )
     icu_sync_parser.add_argument(
         "--dry-run",
@@ -363,7 +353,7 @@ def cmd_icu(args: argparse.Namespace) -> int:
     if args.icu_command == "status":
         return cmd_icu_status()
     if args.icu_command == "sync":
-        return cmd_icu_sync(args.since, args.retry_failed, args.dry_run)
+        return cmd_icu_sync(args.dry_run)
     raise ValueError(f"Unknown icu command: {args.icu_command}")
 
 
@@ -428,17 +418,11 @@ def cmd_icu_status() -> int:
     return 0
 
 
-def cmd_icu_sync(
-    since: date | None,
-    retry_failed: bool,
-    dry_run: bool,
-) -> int:
+def cmd_icu_sync(dry_run: bool) -> int:
     config = AppConfig.load()
     service = RideSyncService(config)
     try:
         summary = service.sync_icu(
-            since=since,
-            include_failed=retry_failed,
             dry_run=dry_run,
         )
     finally:
@@ -447,8 +431,6 @@ def cmd_icu_sync(
     _print_title("ICU Sync")
     _print_result("success")
     _print_field("Mode", "dry-run" if dry_run else "upload")
-    if since is not None:
-        _print_field("Since", since.isoformat())
     _print_icu_sync_summary(summary)
     if dry_run:
         _print_next("igp-ride icu sync")
@@ -970,15 +952,6 @@ def _print_icu_sync_summary(summary: IcuSyncSummary) -> None:
             ("dry_run", summary.dry_run),
         ]
     )
-
-
-def _parse_date_arg(value: str) -> date:
-    try:
-        return date.fromisoformat(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(
-            f"expected YYYY-MM-DD date, got {value!r}"
-        ) from exc
 
 
 def _summary_items_from_state(state: dict[str, object]) -> list[tuple[str, object]]:

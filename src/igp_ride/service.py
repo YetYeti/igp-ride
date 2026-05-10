@@ -408,7 +408,7 @@ class RideSyncService:
         self,
         *,
         since: date | None = None,
-        include_failed: bool = False,
+        include_failed: bool = True,
         dry_run: bool = False,
     ) -> IcuSyncSummary:
         if not self.config.icu_api_key:

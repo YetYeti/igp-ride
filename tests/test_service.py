@@ -171,6 +171,10 @@ class TestIcuSync:
             summary = service.sync_icu()
 
         assert summary == IcuSyncSummary(candidates=1, uploaded=1)
+        mock_db.get_activities_pending_icu_sync.assert_called_once_with(
+            since=None,
+            include_failed=True,
+        )
         MockIcuClient.assert_called_once_with(
             api_key="icu-key",
             athlete_id="0",

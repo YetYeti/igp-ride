@@ -329,16 +329,12 @@ class TestIcuOutput:
                 [
                     "icu",
                     "sync",
-                    "--since",
-                    "2026-05-01",
-                    "--retry-failed",
                     "--dry-run",
                 ]
             )
 
         assert exit_code == 0
-        assert cmd.call_args.args[0].isoformat() == "2026-05-01"
-        assert cmd.call_args.args[1:] == (True, True)
+        cmd.assert_called_once_with(True)
 
     def test_icu_sync_prints_summary(self, tmp_path: Path, capsys):
         config = _make_config(tmp_path)
@@ -353,7 +349,7 @@ class TestIcuOutput:
             patch("igp_ride.cli.AppConfig.load", return_value=config),
             patch("igp_ride.cli.RideSyncService", return_value=service),
         ):
-            exit_code = cmd_icu_sync(None, False, False)
+            exit_code = cmd_icu_sync(False)
 
         captured = capsys.readouterr()
         assert exit_code == 0
@@ -364,8 +360,6 @@ class TestIcuOutput:
             "failed=0 dry_run=no"
         ) in captured.out
         service.sync_icu.assert_called_once_with(
-            since=None,
-            include_failed=False,
             dry_run=False,
         )
         assert service.close.called
@@ -383,7 +377,7 @@ class TestIcuOutput:
             patch("igp_ride.cli.AppConfig.load", return_value=config),
             patch("igp_ride.cli.RideSyncService", return_value=service),
         ):
-            exit_code = cmd_icu_sync(None, False, True)
+            exit_code = cmd_icu_sync(True)
 
         captured = capsys.readouterr()
         assert exit_code == 0
