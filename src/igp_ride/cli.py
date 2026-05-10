@@ -164,6 +164,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     setup_logging()
+    _configure_stderr_buffering()
     parser = build_parser()
     args = parser.parse_args(argv)
     _reset_output_state(output_format=args.format, no_input=args.no_input)
@@ -855,6 +856,16 @@ def _read_secret_stdin(label: str) -> str:
 
 def _print_json(payload: dict[str, object]) -> None:
     print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+
+
+def _configure_stderr_buffering() -> None:
+    reconfigure = getattr(sys.stderr, "reconfigure", None)
+    if sys.stderr.isatty() or not callable(reconfigure):
+        return
+    try:
+        reconfigure(line_buffering=True)
+    except (AttributeError, TypeError, ValueError):
+        pass
 
 
 def _command_title(args: argparse.Namespace) -> str:

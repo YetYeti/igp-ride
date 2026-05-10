@@ -106,6 +106,19 @@ class FakeUpdateService:
 
 
 class TestMainOutput:
+    def test_main_configures_non_tty_stderr_line_buffering(self):
+        stderr = MagicMock()
+        stderr.isatty.return_value = False
+
+        with (
+            patch("sys.stderr", stderr),
+            patch("igp_ride.cli.cmd_list", return_value=0),
+        ):
+            exit_code = main(["list"])
+
+        assert exit_code == 0
+        stderr.reconfigure.assert_called_once_with(line_buffering=True)
+
     def test_main_prints_version(self, capsys):
         with patch("igp_ride.cli._get_cli_version", return_value="0.1.1"):
             with pytest.raises(SystemExit) as exc:
