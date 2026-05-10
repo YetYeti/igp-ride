@@ -108,8 +108,6 @@ def _icu_config(tmp_path: Path) -> MagicMock:
     config.base_url = "https://example.com"
     config.session_file = tmp_path / "session.json"
     config.icu_api_key = "icu-key"
-    config.icu_athlete_id = "0"
-    config.icu_base_url = "https://icu.example/api"
     return config
 
 
@@ -175,11 +173,7 @@ class TestIcuSync:
             since=None,
             include_failed=True,
         )
-        MockIcuClient.assert_called_once_with(
-            api_key="icu-key",
-            athlete_id="0",
-            base_url="https://icu.example/api",
-        )
+        MockIcuClient.assert_called_once_with(api_key="icu-key")
         mock_icu.list_activities.assert_called_once_with(oldest="2026-05-01")
         mock_icu.upload_activity_file.assert_called_once_with(
             fit_path,

@@ -364,8 +364,6 @@ def cmd_icu_status() -> int:
 
     client = IntervalsIcuClient(
         api_key=config.icu_api_key,
-        athlete_id=config.icu_athlete_id,
-        base_url=config.icu_base_url,
     )
     try:
         athlete = client.get_athlete()

@@ -8,7 +8,6 @@ from keyring.errors import KeyringError
 from igp_ride.config import (
     AppConfig,
     DEFAULT_BASE_URL,
-    DEFAULT_ICU_BASE_URL,
     clear_icu_config,
     delete_session_data,
     get_default_config_dir,
@@ -49,7 +48,6 @@ class TestAppConfig:
 
     def test_load_reads_icu_settings_from_environment(self, monkeypatch):
         monkeypatch.setenv("INTERVALS_ICU_API_KEY", "icu-key")
-        monkeypatch.setenv("INTERVALS_ICU_ATHLETE_ID", "i123456")
 
         with (
             patch("igp_ride.config.ensure_runtime_dirs"),
@@ -59,10 +57,19 @@ class TestAppConfig:
             config = AppConfig.load()
 
         assert config.icu_api_key == "icu-key"
-        assert config.icu_athlete_id == "i123456"
-        assert config.icu_base_url == DEFAULT_ICU_BASE_URL
 
-    def test_load_reads_icu_settings_from_keyring_and_file(self, tmp_path: Path):
+    def test_load_reads_icu_api_key_from_keyring(self):
+        with (
+            patch("igp_ride.config.ensure_runtime_dirs"),
+            patch("igp_ride.config._read_session_username", return_value=None),
+            patch("igp_ride.config._load_password", return_value=None),
+            patch("igp_ride.config.load_icu_api_key", return_value="stored-key"),
+        ):
+            config = AppConfig.load()
+
+        assert config.icu_api_key == "stored-key"
+
+    def test_load_ignores_legacy_icu_settings_file(self, tmp_path: Path):
         icu_config_file = tmp_path / "icu.json"
         icu_config_file.write_text(
             '{"athlete_id": "i123456", "base_url": "https://icu.example/api"}',
@@ -79,15 +86,10 @@ class TestAppConfig:
             config = AppConfig.load()
 
         assert config.icu_api_key == "stored-key"
-        assert config.icu_athlete_id == "i123456"
-        assert config.icu_base_url == "https://icu.example/api"
 
     def test_load_prefers_igp_ride_icu_environment(self, monkeypatch):
         monkeypatch.setenv("INTERVALS_ICU_API_KEY", "intervals-key")
-        monkeypatch.setenv("INTERVALS_ICU_ATHLETE_ID", "i123456")
         monkeypatch.setenv("IGP_RIDE_ICU_API_KEY", "igp-key")
-        monkeypatch.setenv("IGP_RIDE_ICU_ATHLETE_ID", "0")
-        monkeypatch.setenv("IGP_RIDE_ICU_BASE_URL", "https://icu.example/api")
 
         with (
             patch("igp_ride.config.ensure_runtime_dirs"),
@@ -97,8 +99,6 @@ class TestAppConfig:
             config = AppConfig.load()
 
         assert config.icu_api_key == "igp-key"
-        assert config.icu_athlete_id == "0"
-        assert config.icu_base_url == "https://icu.example/api"
 
 
 class TestDefaultPaths:
@@ -134,22 +134,20 @@ class TestDefaultPaths:
 
 
 class TestIcuConfigStorage:
-    def test_save_icu_config_writes_non_secret_settings_to_file(self, tmp_path: Path):
+    def test_save_icu_config_writes_placeholder_file_without_secret(self, tmp_path: Path):
         icu_config_file = tmp_path / "icu.json"
 
         with (
             patch("igp_ride.config.get_default_icu_config_file", return_value=icu_config_file),
             patch("igp_ride.config.keyring.set_password") as mock_set_password,
         ):
-            saved_path = save_icu_config(
-                api_key="secret",
-                athlete_id="i123456",
-                base_url="https://icu.example/api",
-            )
+            saved_path = save_icu_config(api_key="secret")
 
         assert saved_path == icu_config_file
-        assert "secret" not in icu_config_file.read_text(encoding="utf-8")
-        assert '"athlete_id": "i123456"' in icu_config_file.read_text(encoding="utf-8")
+        payload = icu_config_file.read_text(encoding="utf-8")
+        assert "secret" not in payload
+        assert "athlete_id" not in payload
+        assert "base_url" not in payload
         mock_set_password.assert_called_once()
 
     def test_clear_icu_config_removes_keyring_secret_and_file(self, tmp_path: Path):

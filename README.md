@@ -261,11 +261,8 @@ Intervals.icu：
 
 - `IGP_RIDE_ICU_API_KEY`：Intervals.icu API key。
 - `INTERVALS_ICU_API_KEY`：备用 Intervals.icu API key 环境变量。
-- `IGP_RIDE_ICU_ATHLETE_ID`：可选 athlete ID 覆盖值。
-- `INTERVALS_ICU_ATHLETE_ID`：备用 athlete ID 环境变量。
-- `IGP_RIDE_ICU_BASE_URL`：可选 Intervals.icu API base URL 覆盖值。
 
-CLI 不暴露 athlete ID 或 base URL 参数。默认 Intervals.icu athlete 为 `0`，表示 API key 对应的当前用户。
+Intervals.icu 同步默认使用 API key 对应的当前用户。
 
 ## 退出码
 

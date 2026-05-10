@@ -295,8 +295,6 @@ class TestIcuOutput:
             session_file=config.session_file,
             db_path=config.db_path,
             icu_api_key="secret",
-            icu_athlete_id="i123456",
-            icu_base_url="https://icu.example/api",
         )
 
         with (
@@ -312,11 +310,7 @@ class TestIcuOutput:
 
         captured = capsys.readouterr()
         assert exit_code == 0
-        MockClient.assert_called_once_with(
-            api_key="secret",
-            athlete_id="i123456",
-            base_url="https://icu.example/api",
-        )
+        MockClient.assert_called_once_with(api_key="secret")
         assert "Logged In: yes" in captured.out
         assert "Authenticated: yes" in captured.out
         assert "Remote Athlete ID: i123456" in captured.out

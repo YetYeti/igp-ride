@@ -26,7 +26,6 @@ KEYRING_SESSION_SERVICE: Final[str] = "igp-ride-session"
 KEYRING_ICU_SERVICE: Final[str] = "igp-ride-icu"
 KEYRING_ICU_ACCOUNT: Final[str] = "default"
 DEFAULT_BASE_URL: Final[str] = "https://prod.zh.igpsport.com/service"
-DEFAULT_ICU_BASE_URL: Final[str] = "https://intervals.icu/api/v1"
 SESSION_DATA_PROTECTION: Final[str] = "dpapi-current-user"
 
 
@@ -68,8 +67,6 @@ class AppConfig:
     session_file: Path = field(default_factory=get_default_session_file)
     db_path: Path = field(default_factory=get_default_db_file)
     icu_api_key: str = ""
-    icu_athlete_id: str = "0"
-    icu_base_url: str = DEFAULT_ICU_BASE_URL
 
     @classmethod
     def load(cls, require_credentials: bool = False) -> "AppConfig":
@@ -82,7 +79,6 @@ class AppConfig:
             os.getenv("IGP_PASSWORD"),
             _load_password(username),
         )
-        icu_settings = load_icu_settings()
         config = cls(
             username=username,
             password=password,
@@ -90,17 +86,6 @@ class AppConfig:
                 os.getenv("IGP_RIDE_ICU_API_KEY"),
                 os.getenv("INTERVALS_ICU_API_KEY"),
                 load_icu_api_key(),
-            ),
-            icu_athlete_id=_first_non_empty(
-                os.getenv("IGP_RIDE_ICU_ATHLETE_ID"),
-                os.getenv("INTERVALS_ICU_ATHLETE_ID"),
-                icu_settings.get("athlete_id"),
-                "0",
-            ),
-            icu_base_url=_first_non_empty(
-                os.getenv("IGP_RIDE_ICU_BASE_URL"),
-                icu_settings.get("base_url"),
-                DEFAULT_ICU_BASE_URL,
             ),
         )
         if require_credentials and (not config.username or not config.password):
@@ -114,23 +99,14 @@ def ensure_runtime_dirs() -> None:
     ensure_dir(get_default_fit_dir())
 
 
-def save_icu_config(
-    *,
-    api_key: str,
-    athlete_id: str = "0",
-    base_url: str = DEFAULT_ICU_BASE_URL,
-) -> Path:
+def save_icu_config(*, api_key: str) -> Path:
     if not api_key:
         raise ConfigurationError("Intervals.icu API key is required.")
     save_icu_api_key(api_key)
-    payload = {
-        "athlete_id": athlete_id or "0",
-        "base_url": base_url or DEFAULT_ICU_BASE_URL,
-    }
     config_file = get_default_icu_config_file()
     ensure_dir(config_file.parent)
     config_file.write_text(
-        json.dumps(payload, ensure_ascii=True, indent=2),
+        json.dumps({}, ensure_ascii=True, indent=2),
         encoding="utf-8",
     )
     return config_file
@@ -142,24 +118,6 @@ def clear_icu_config() -> None:
         get_default_icu_config_file().unlink()
     except FileNotFoundError:
         pass
-
-
-def load_icu_settings() -> dict[str, str]:
-    config_file = get_default_icu_config_file()
-    try:
-        payload = json.loads(config_file.read_text(encoding="utf-8"))
-    except OSError, json.JSONDecodeError:
-        return {}
-    if not isinstance(payload, dict):
-        return {}
-    settings: dict[str, str] = {}
-    athlete_id = payload.get("athlete_id")
-    if isinstance(athlete_id, str) and athlete_id:
-        settings["athlete_id"] = athlete_id
-    base_url = payload.get("base_url")
-    if isinstance(base_url, str) and base_url:
-        settings["base_url"] = base_url
-    return settings
 
 
 def save_icu_api_key(api_key: str) -> None:

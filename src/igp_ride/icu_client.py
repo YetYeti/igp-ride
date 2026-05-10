@@ -9,6 +9,10 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 
+INTERVALS_ICU_API_BASE_URL = "https://intervals.icu/api/v1"
+INTERVALS_ICU_CURRENT_USER = "0"
+
+
 class ICUClientError(Exception):
     pass
 
@@ -27,13 +31,9 @@ class IntervalsIcuClient:
         self,
         *,
         api_key: str,
-        athlete_id: str = "0",
-        base_url: str = "https://intervals.icu/api/v1",
         timeout: int = 30,
     ):
         self.api_key = api_key
-        self.athlete_id = athlete_id or "0"
-        self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self._session = self._create_session()
         self._session.auth = ("API_KEY", api_key)
@@ -44,7 +44,7 @@ class IntervalsIcuClient:
 
     def get_athlete(self) -> dict[str, Any]:
         response = self._session.get(
-            f"{self.base_url}/athlete/{self.athlete_id}",
+            f"{INTERVALS_ICU_API_BASE_URL}/athlete/{INTERVALS_ICU_CURRENT_USER}",
             timeout=self.timeout,
         )
         payload = _decode_json_response(response)
@@ -64,7 +64,7 @@ class IntervalsIcuClient:
         if newest:
             params["newest"] = newest
         response = self._session.get(
-            f"{self.base_url}/athlete/{self.athlete_id}/activities",
+            f"{INTERVALS_ICU_API_BASE_URL}/athlete/{INTERVALS_ICU_CURRENT_USER}/activities",
             params=params,
             timeout=self.timeout,
         )
@@ -89,7 +89,7 @@ class IntervalsIcuClient:
 
         with fit_path.open("rb") as fit_file:
             response = self._session.post(
-                f"{self.base_url}/athlete/{self.athlete_id}/activities",
+                f"{INTERVALS_ICU_API_BASE_URL}/athlete/{INTERVALS_ICU_CURRENT_USER}/activities",
                 params=params,
                 files={"file": (fit_path.name, fit_file, "application/octet-stream")},
                 timeout=60,

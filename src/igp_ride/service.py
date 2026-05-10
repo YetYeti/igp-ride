@@ -416,8 +416,6 @@ class RideSyncService:
 
         icu_client = IntervalsIcuClient(
             api_key=self.config.icu_api_key,
-            athlete_id=self.config.icu_athlete_id,
-            base_url=self.config.icu_base_url,
         )
         try:
             remote_by_external_id = self._load_icu_remote_external_ids(

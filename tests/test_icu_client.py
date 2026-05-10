@@ -6,7 +6,12 @@ from unittest.mock import Mock, patch
 import pytest
 import requests
 
-from igp_ride.icu_client import ICUClientError, IntervalsIcuClient
+from igp_ride.icu_client import (
+    ICUClientError,
+    INTERVALS_ICU_API_BASE_URL,
+    INTERVALS_ICU_CURRENT_USER,
+    IntervalsIcuClient,
+)
 
 
 def _response(payload: object, status_code: int = 200) -> Mock:
@@ -24,38 +29,27 @@ def _response(payload: object, status_code: int = 200) -> Mock:
 
 class TestIntervalsIcuClient:
     def test_configures_basic_auth(self):
-        client = IntervalsIcuClient(
-            api_key="secret",
-            athlete_id="i123456",
-            base_url="https://icu.example/api",
-        )
+        client = IntervalsIcuClient(api_key="secret")
 
         assert client._session.auth == ("API_KEY", "secret")
-        assert client.athlete_id == "i123456"
-        assert client.base_url == "https://icu.example/api"
         client.close()
 
     def test_get_athlete(self):
-        client = IntervalsIcuClient(
-            api_key="secret",
-            athlete_id="0",
-            base_url="https://icu.example/api",
-        )
+        client = IntervalsIcuClient(api_key="secret")
         response = _response({"id": "i123456", "name": "Tester"})
 
         with patch.object(client._session, "get", return_value=response) as get:
             payload = client.get_athlete()
 
-        get.assert_called_once_with("https://icu.example/api/athlete/0", timeout=30)
+        get.assert_called_once_with(
+            f"{INTERVALS_ICU_API_BASE_URL}/athlete/{INTERVALS_ICU_CURRENT_USER}",
+            timeout=30,
+        )
         assert payload == {"id": "i123456", "name": "Tester"}
         client.close()
 
     def test_list_activities_normalizes_summary_fields(self):
-        client = IntervalsIcuClient(
-            api_key="secret",
-            athlete_id="0",
-            base_url="https://icu.example/api",
-        )
+        client = IntervalsIcuClient(api_key="secret")
         response = _response(
             [
                 {
@@ -76,7 +70,7 @@ class TestIntervalsIcuClient:
             )
 
         get.assert_called_once_with(
-            "https://icu.example/api/athlete/0/activities",
+            f"{INTERVALS_ICU_API_BASE_URL}/athlete/{INTERVALS_ICU_CURRENT_USER}/activities",
             params={"oldest": "2026-05-01", "newest": "2026-05-09"},
             timeout=30,
         )
@@ -90,11 +84,7 @@ class TestIntervalsIcuClient:
     def test_upload_activity_file_posts_multipart(self, tmp_path: Path):
         fit_path = tmp_path / "ride.fit"
         fit_path.write_bytes(b"fit-data")
-        client = IntervalsIcuClient(
-            api_key="secret",
-            athlete_id="0",
-            base_url="https://icu.example/api",
-        )
+        client = IntervalsIcuClient(api_key="secret")
         response = _response({"id": "i999"})
 
         with patch.object(client._session, "post", return_value=response) as post:
@@ -106,7 +96,10 @@ class TestIntervalsIcuClient:
             )
 
         post.assert_called_once()
-        assert post.call_args.args[0] == "https://icu.example/api/athlete/0/activities"
+        assert (
+            post.call_args.args[0]
+            == f"{INTERVALS_ICU_API_BASE_URL}/athlete/{INTERVALS_ICU_CURRENT_USER}/activities"
+        )
         assert post.call_args.kwargs["params"] == {
             "external_id": "igp-1",
             "name": "Morning Ride",
