@@ -4,15 +4,14 @@
 
 ## 功能概览
 
-- 登录 IGPSPORT 并缓存本地 session
-- 增量同步 IGPSPORT 活动
-- 可选全量刷新历史活动
-- 下载 FIT 文件，并在 `update` 时自动修复缺失或无效的 FIT 文件
-- 查询本地活动列表和单条活动详情
-- 保存 Intervals.icu API key
-- 将本地已下载的 FIT 文件上传到 Intervals.icu
-- 自动跳过远端已存在的 Intervals.icu 活动
-- 自动重试之前失败的 Intervals.icu 同步项
+- 登录 IGPSPORT 账号
+- 同步 IGPSPORT 骑行活动
+- 下载活动对应的 FIT 文件
+- 查看本地活动列表
+- 查看单条活动详情
+- 上传活动到 Intervals.icu
+- 预览将要上传到 Intervals.icu 的活动
+- 重新执行同步时自动处理上次失败的上传
 
 ## 环境要求
 
