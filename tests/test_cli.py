@@ -6,9 +6,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from igp_ride.cli import cmd_icu_sync, cmd_list, cmd_show, cmd_stats, cmd_update, main
+from igp_ride.cli import cmd_icu_sync, cmd_list, cmd_show, cmd_update, main
 from igp_ride.config import AppConfig, ConfigurationError
-from igp_ride.models import Activity, PeriodStats, SyncSummary
+from igp_ride.models import Activity, SyncSummary
 from igp_ride.service import IcuSyncSummary, SyncProgress
 
 
@@ -121,40 +121,6 @@ class TestMainOutput:
         assert "== Update ==" in captured.err
         assert "Error: Missing credentials." in captured.err
         assert "Tip: Run igp-ride login first" in captured.err
-
-    def test_main_blocks_daemon_start_when_management_is_unsupported(self, capsys):
-        with patch("igp_ride.cli.is_daemon_management_supported", return_value=False):
-            exit_code = main(["daemon", "start"])
-
-        captured = capsys.readouterr()
-        assert exit_code == 9
-        assert "== Daemon Start ==" in captured.err
-        assert "only supported on macOS" in captured.err
-
-    def test_main_allows_daemon_run_once_when_management_is_unsupported(self, tmp_path: Path, capsys):
-        config = _make_config(tmp_path)
-        state = {
-            "last_status": "ok",
-            "last_hook_triggered": False,
-            "last_remote_fetched": 1,
-            "last_new_activities": 0,
-            "last_updated_activities": 0,
-            "last_activities_skipped": 1,
-            "last_fit_files_failed": 0,
-        }
-
-        with (
-            patch("igp_ride.cli.AppConfig.load", return_value=config),
-            patch("igp_ride.cli.run_daemon_loop", return_value=0),
-            patch("igp_ride.cli.get_daemon_status", return_value=state),
-            patch("igp_ride.cli.is_daemon_management_supported", return_value=False),
-        ):
-            exit_code = main(["daemon", "run", "--once"])
-
-        captured = capsys.readouterr()
-        assert exit_code == 0
-        assert "== Daemon Run ==" in captured.out
-        assert "Mode: foreground-once" in captured.out
 
 
 class TestUpdateOutput:
@@ -521,43 +487,3 @@ class TestShowOutput:
         assert "Cadence: 86 rpm | max 112 rpm" in captured.out
         assert "Speed: 29.4 km/h | max 51.2 km/h" in captured.out
         assert "Calories: 1,024 kcal" in captured.out
-
-
-class TestStatsOutput:
-    def test_stats_uses_summary_and_table(self, tmp_path: Path, capsys):
-        config = _make_config(tmp_path)
-        stats = [
-            PeriodStats(
-                period="2026-03",
-                count=7,
-                total_distance=239100,
-                total_moving_time=30420,
-                avg_speed=7.8611111,
-                avg_power=214,
-                total_ascent=2220,
-            )
-        ]
-        service = MagicMock()
-        service.get_stats.return_value = stats
-
-        with (
-            patch("igp_ride.cli.AppConfig.load", return_value=config),
-            patch("igp_ride.cli.RideSyncService", return_value=service),
-        ):
-            exit_code = cmd_stats("month", None, None, False)
-
-        captured = capsys.readouterr()
-        assert exit_code == 0
-        assert "== Ride Statistics ==" in captured.out
-        assert "Periods: 1" in captured.out
-        assert "Rides: 7" in captured.out
-        assert "Distance: 239.1 km" in captured.out
-        assert "Time: 8.4 h" in captured.out
-        assert "Ascent: 2,220 m" in captured.out
-        assert "PERIOD   " in captured.out
-        assert "CNT" in captured.out
-        assert "AVG_SPD" in captured.out
-        assert "ASCENT" in captured.out
-        assert "2026-03" in captured.out
-        assert "  7" in captured.out
-        assert "  8:27" in captured.out

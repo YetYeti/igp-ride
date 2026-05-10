@@ -91,51 +91,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Only re-download missing or invalid FIT files",
     )
 
-    daemon_parser = subparsers.add_parser(
-        "daemon",
-        help="Manage background sync scheduling",
-    )
-    daemon_subparsers = daemon_parser.add_subparsers(
-        dest="daemon_command",
-        required=True,
-    )
-
-    daemon_start_parser = daemon_subparsers.add_parser(
-        "start",
-        help="Install and start the background sync LaunchAgent",
-    )
-    daemon_start_parser.add_argument(
-        "--interval",
-        default=DEFAULT_INTERVAL,
-        help="Polling interval, e.g. 30m, 1h, or 45 (minutes).",
-    )
-    daemon_start_parser.add_argument(
-        "--hook",
-        help="Shell command to run when new activities are detected.",
-    )
-
-    daemon_run_parser = daemon_subparsers.add_parser(
-        "run",
-        help="Run a sync cycle in the foreground",
-    )
-    daemon_run_parser.add_argument(
-        "--interval",
-        default=DEFAULT_INTERVAL,
-        help="Polling interval, e.g. 30m, 1h, or 45 (minutes).",
-    )
-    daemon_run_parser.add_argument(
-        "--hook",
-        help="Shell command to run when new activities are detected.",
-    )
-    daemon_run_parser.add_argument(
-        "--once",
-        action="store_true",
-        help="Run a single update cycle and exit.",
-    )
-
-    daemon_subparsers.add_parser("stop", help="Stop and unload the background sync")
-    daemon_subparsers.add_parser("status", help="Show background sync status")
-
     icu_parser = subparsers.add_parser(
         "icu",
         help="Sync local FIT activities to Intervals.icu",
@@ -215,23 +170,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Update remote activities before showing",
     )
 
-    stats_parser = subparsers.add_parser("stats", help="Show activity statistics")
-    stats_parser.add_argument(
-        "--by",
-        choices=["month", "year"],
-        default="month",
-        help="Group by month or year (default: month)",
-    )
-    stats_parser.add_argument("--year", type=int, help="Filter by year")
-    stats_parser.add_argument(
-        "--type", dest="activity_type", help="Filter by activity title"
-    )
-    stats_parser.add_argument(
-        "--update",
-        action="store_true",
-        help="Update remote activities before showing stats",
-    )
-
     return parser
 
 
@@ -250,8 +188,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             return cmd_reset(args.yes)
         if args.command == "update":
             return cmd_update(args.all, args.progress, args.repair)
-        if args.command == "daemon":
-            return cmd_daemon(args)
         if args.command == "icu":
             return cmd_icu(args)
         if args.command == "list":
@@ -263,8 +199,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         if args.command == "show":
             return cmd_show(args.activity_id, args.update)
-        if args.command == "stats":
-            return cmd_stats(args.by, args.year, args.activity_type, args.update)
     except ConfigurationError as exc:
         _print_error_block(
             _command_title(args),
@@ -925,24 +859,14 @@ def _reset_output_state() -> None:
 
 
 def _command_title(args: argparse.Namespace) -> str:
-    daemon_titles: Final[dict[str, str]] = {
-        "start": "Daemon Start",
-        "run": "Daemon Run",
-        "stop": "Daemon Stop",
-        "status": "Daemon Status",
-    }
     command_titles: Final[dict[str, str]] = {
         "login": "Login",
         "logout": "Logout",
         "reset": "Reset",
         "update": "Update",
-        "daemon": daemon_titles.get(
-            _as_str_state(getattr(args, "daemon_command", "")), "Daemon"
-        ),
         "icu": _icu_command_title(args),
         "list": "Activity List",
         "show": "Activity Details",
-        "stats": "Ride Statistics",
     }
     return command_titles.get(_as_str_state(getattr(args, "command", "")), "igp-ride")
 
