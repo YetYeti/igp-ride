@@ -16,7 +16,6 @@
 ## 环境要求
 
 - Python 3.14 或更新版本
-- 可用的系统 keyring
 - IGPSPORT 账号
 - 如需同步到 Intervals.icu，需要 Intervals.icu API key
 
@@ -65,7 +64,7 @@ uv run igp-ride --help
 igp-ride login
 ```
 
-该命令会交互输入用户名和密码，并把凭据保存到系统 keyring。
+该命令会交互输入用户名和密码，并把凭据加密保存到本地文件。
 
 同步活动和 FIT 文件：
 
@@ -238,9 +237,15 @@ igp-ride icu sync
 
 `igp-ride` 使用当前平台对应的用户目录，主要分为三类：
 
-- 配置目录：保存登录信息索引、Intervals.icu 配置等小型配置文件。
+- 配置目录：保存加密的登录凭证、session 数据、Intervals.icu 配置等。
 - 数据目录：保存本地 SQLite 数据库和已下载的 FIT 文件。
 - 日志目录：保存运行日志。
+
+凭证安全说明：
+
+- 密码和 Intervals.icu API Key 使用 Fernet 对称加密（基于 `cryptography` 库）存储在本地文件中。
+- 加密密钥由机器信息（主机名 + 用户名）通过 PBKDF2 派生，无需额外管理密钥。
+- Session 数据（cookies/tokens）以明文 JSON 存储，文件权限 `0o600`，token 过期后自动重新认证。
 
 macOS 和 Linux 默认使用：
 

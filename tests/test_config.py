@@ -1,24 +1,23 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import patch
-
-from keyring.errors import KeyringError
 
 from igp_ride.config import (
     AppConfig,
     DEFAULT_BASE_URL,
     clear_icu_config,
-    delete_session_data,
+    delete_credentials,
     get_default_config_dir,
+    get_default_credentials_file,
     get_default_data_dir,
     get_default_db_file,
     get_default_fit_dir,
     get_default_icu_config_file,
     get_default_session_file,
-    load_session_data,
+    save_credentials,
     save_icu_config,
-    save_session_data,
 )
 
 
@@ -28,59 +27,43 @@ class TestAppConfig:
 
         with (
             patch("igp_ride.config.ensure_runtime_dirs"),
-            patch("igp_ride.config._read_session_username", return_value=None),
-            patch("igp_ride.config.keyring.get_password", return_value=None),
+            patch("igp_ride.config._read_stored_username", return_value=None),
+            patch("igp_ride.config._load_password", return_value=None),
         ):
             config = AppConfig.load()
 
         assert config.base_url == DEFAULT_BASE_URL
 
-    def test_load_tolerates_keyring_errors_when_credentials_not_required(self):
+    def test_load_reads_credentials_from_file(self, tmp_path: Path):
+        cred_file = tmp_path / "credentials.json"
         with (
             patch("igp_ride.config.ensure_runtime_dirs"),
-            patch("igp_ride.config._read_session_username", return_value="tester"),
-            patch("igp_ride.config.keyring.get_password", side_effect=KeyringError()),
+            patch("igp_ride.config.get_default_credentials_file", return_value=cred_file),
+            patch("igp_ride.config._load_password", return_value="decrypted-pw"),
+            patch("igp_ride.config._read_stored_username", return_value="tester"),
         ):
             config = AppConfig.load()
 
         assert config.username == "tester"
-        assert config.password == ""
+        assert config.password == "decrypted-pw"
 
     def test_load_reads_icu_settings_from_environment(self, monkeypatch):
         monkeypatch.setenv("INTERVALS_ICU_API_KEY", "icu-key")
 
         with (
             patch("igp_ride.config.ensure_runtime_dirs"),
-            patch("igp_ride.config._read_session_username", return_value=None),
-            patch("igp_ride.config.keyring.get_password", return_value=None),
+            patch("igp_ride.config._read_stored_username", return_value=None),
+            patch("igp_ride.config._load_password", return_value=None),
         ):
             config = AppConfig.load()
 
         assert config.icu_api_key == "icu-key"
 
-    def test_load_reads_icu_api_key_from_keyring(self):
+    def test_load_reads_icu_api_key_from_file(self):
         with (
             patch("igp_ride.config.ensure_runtime_dirs"),
-            patch("igp_ride.config._read_session_username", return_value=None),
+            patch("igp_ride.config._read_stored_username", return_value=None),
             patch("igp_ride.config._load_password", return_value=None),
-            patch("igp_ride.config.load_icu_api_key", return_value="stored-key"),
-        ):
-            config = AppConfig.load()
-
-        assert config.icu_api_key == "stored-key"
-
-    def test_load_ignores_legacy_icu_settings_file(self, tmp_path: Path):
-        icu_config_file = tmp_path / "icu.json"
-        icu_config_file.write_text(
-            '{"athlete_id": "i123456", "base_url": "https://icu.example/api"}',
-            encoding="utf-8",
-        )
-
-        with (
-            patch("igp_ride.config.ensure_runtime_dirs"),
-            patch("igp_ride.config._read_session_username", return_value=None),
-            patch("igp_ride.config._load_password", return_value=None),
-            patch("igp_ride.config.get_default_icu_config_file", return_value=icu_config_file),
             patch("igp_ride.config.load_icu_api_key", return_value="stored-key"),
         ):
             config = AppConfig.load()
@@ -93,8 +76,8 @@ class TestAppConfig:
 
         with (
             patch("igp_ride.config.ensure_runtime_dirs"),
-            patch("igp_ride.config._read_session_username", return_value=None),
-            patch("igp_ride.config.keyring.get_password", return_value=None),
+            patch("igp_ride.config._read_stored_username", return_value=None),
+            patch("igp_ride.config._load_password", return_value=None),
         ):
             config = AppConfig.load()
 
@@ -125,6 +108,9 @@ class TestDefaultPaths:
             assert get_default_session_file() == Path(
                 "C:/Users/demo/AppData/Roaming/igp-ride/session.json"
             )
+            assert get_default_credentials_file() == Path(
+                "C:/Users/demo/AppData/Roaming/igp-ride/credentials.json"
+            )
             assert get_default_icu_config_file() == Path(
                 "C:/Users/demo/AppData/Roaming/igp-ride/icu.json"
             )
@@ -133,147 +119,63 @@ class TestDefaultPaths:
             )
 
 
-class TestIcuConfigStorage:
-    def test_save_icu_config_writes_placeholder_file_without_secret(self, tmp_path: Path):
-        icu_config_file = tmp_path / "icu.json"
+class TestCredentialStorage:
+    def test_save_credentials_writes_encrypted_password(self, tmp_path: Path):
+        cred_file = tmp_path / "credentials.json"
 
         with (
-            patch("igp_ride.config.get_default_icu_config_file", return_value=icu_config_file),
-            patch("igp_ride.config.keyring.set_password") as mock_set_password,
+            patch("igp_ride.config.get_default_credentials_file", return_value=cred_file),
+            patch("igp_ride.config.encrypt_value", return_value="ENC_TOKEN"),
+        ):
+            save_credentials("tester", "secret")
+
+        payload = json.loads(cred_file.read_text(encoding="utf-8"))
+        assert payload["username"] == "tester"
+        assert payload["password_encrypted"] == "ENC_TOKEN"
+        assert "secret" not in cred_file.read_text(encoding="utf-8")
+
+    def test_delete_credentials_removes_file(self, tmp_path: Path):
+        cred_file = tmp_path / "credentials.json"
+        cred_file.write_text("{}", encoding="utf-8")
+
+        with patch("igp_ride.config.get_default_credentials_file", return_value=cred_file):
+            delete_credentials("tester")
+
+        assert not cred_file.exists()
+
+    def test_delete_credentials_tolerates_missing_file(self, tmp_path: Path):
+        cred_file = tmp_path / "credentials.json"
+
+        with patch("igp_ride.config.get_default_credentials_file", return_value=cred_file):
+            delete_credentials("tester")
+
+
+class TestIcuConfigStorage:
+    def test_save_icu_config_writes_encrypted_key(self, tmp_path: Path):
+        icu_file = tmp_path / "icu.json"
+
+        with (
+            patch("igp_ride.config.get_default_icu_config_file", return_value=icu_file),
+            patch("igp_ride.config.encrypt_value", return_value="ENC_API_KEY"),
         ):
             saved_path = save_icu_config(api_key="secret")
 
-        assert saved_path == icu_config_file
-        payload = icu_config_file.read_text(encoding="utf-8")
-        assert "secret" not in payload
-        assert "athlete_id" not in payload
-        assert "base_url" not in payload
-        mock_set_password.assert_called_once()
+        assert saved_path == icu_file
+        payload = json.loads(icu_file.read_text(encoding="utf-8"))
+        assert payload["api_key_encrypted"] == "ENC_API_KEY"
+        assert "secret" not in icu_file.read_text(encoding="utf-8")
 
-    def test_clear_icu_config_removes_keyring_secret_and_file(self, tmp_path: Path):
-        icu_config_file = tmp_path / "icu.json"
-        icu_config_file.write_text("{}", encoding="utf-8")
+    def test_clear_icu_config_removes_file(self, tmp_path: Path):
+        icu_file = tmp_path / "icu.json"
+        icu_file.write_text("{}", encoding="utf-8")
 
-        with (
-            patch("igp_ride.config.get_default_icu_config_file", return_value=icu_config_file),
-            patch("igp_ride.config.keyring.delete_password") as mock_delete_password,
-        ):
+        with patch("igp_ride.config.get_default_icu_config_file", return_value=icu_file):
             clear_icu_config()
 
-        assert not icu_config_file.exists()
-        mock_delete_password.assert_called_once()
+        assert not icu_file.exists()
 
+    def test_clear_icu_config_tolerates_missing_file(self, tmp_path: Path):
+        icu_file = tmp_path / "icu.json"
 
-class TestWindowsSessionDataStorage:
-    def test_save_session_data_uses_dpapi_protected_file_on_windows(
-        self, tmp_path: Path
-    ):
-        session_data_file = tmp_path / "session_data.json"
-        session_payload = (
-            b'{"cookies":{"sessionid":"abc"},"authorization":"Bearer token",'
-            b'"access_token":"token","refresh_token":"refresh","expires_at":"date"}'
-        )
-
-        with (
-            patch("igp_ride.config.sys.platform", "win32"),
-            patch(
-                "igp_ride.config.get_default_session_data_file",
-                return_value=session_data_file,
-            ),
-            patch("igp_ride.config._protect_with_dpapi", return_value=b"encrypted"),
-            patch(
-                "igp_ride.config._unprotect_with_dpapi",
-                return_value=session_payload,
-            ),
-            patch("igp_ride.config.keyring.set_password") as mock_set_password,
-        ):
-            save_session_data(
-                "tester",
-                cookies={"sessionid": "abc"},
-                authorization="Bearer token",
-                access_token="token",
-                refresh_token="refresh",
-                expires_at="date",
-            )
-            payload = load_session_data("tester")
-
-            stored = session_data_file.read_text(encoding="utf-8")
-            assert "Bearer token" not in stored
-            assert "sessionid" not in stored
-            assert payload == {
-                "cookies": {"sessionid": "abc"},
-                "authorization": "Bearer token",
-                "access_token": "token",
-                "refresh_token": "refresh",
-                "expires_at": "date",
-            }
-            mock_set_password.assert_not_called()
-
-    def test_load_session_data_accepts_legacy_plain_file_on_windows(
-        self, tmp_path: Path
-    ):
-        session_data_file = tmp_path / "session_data.json"
-        session_data_file.write_text(
-            '{"cookies":{"sessionid":"abc"},"authorization":"Bearer token"}',
-            encoding="utf-8",
-        )
-
-        with (
-            patch("igp_ride.config.sys.platform", "win32"),
-            patch(
-                "igp_ride.config.get_default_session_data_file",
-                return_value=session_data_file,
-            ),
-        ):
-            payload = load_session_data("tester")
-
-        assert payload == {
-            "cookies": {"sessionid": "abc"},
-            "authorization": "Bearer token",
-        }
-
-    def test_restrict_session_data_permissions_uses_icacls_on_windows(
-        self, tmp_path: Path
-    ):
-        from igp_ride.config import _restrict_session_data_file_permissions
-
-        session_data_file = tmp_path / "session_data.json"
-        session_data_file.write_text("{}", encoding="utf-8")
-
-        with (
-            patch("igp_ride.config.sys.platform", "win32"),
-            patch("igp_ride.config.os.name", "nt"),
-            patch("igp_ride.config._current_windows_identity", return_value="USER\\me"),
-            patch("igp_ride.config.subprocess.run") as mock_run,
-        ):
-            _restrict_session_data_file_permissions(session_data_file)
-
-        mock_run.assert_called_once_with(
-            [
-                "icacls",
-                str(session_data_file),
-                "/inheritance:r",
-                "/grant:r",
-                "USER\\me:(R,W)",
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-
-    def test_delete_session_data_uses_file_on_windows(self, tmp_path: Path):
-        session_data_file = tmp_path / "session_data.json"
-        session_data_file.write_text("{}", encoding="utf-8")
-
-        with (
-            patch("igp_ride.config.sys.platform", "win32"),
-            patch(
-                "igp_ride.config.get_default_session_data_file",
-                return_value=session_data_file,
-            ),
-            patch("igp_ride.config.keyring.delete_password") as mock_delete_password,
-        ):
-            delete_session_data("tester")
-
-        assert not session_data_file.exists()
-        mock_delete_password.assert_not_called()
+        with patch("igp_ride.config.get_default_icu_config_file", return_value=icu_file):
+            clear_icu_config()

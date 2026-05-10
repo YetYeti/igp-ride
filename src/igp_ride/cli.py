@@ -457,7 +457,7 @@ def cmd_reset(yes: bool) -> int:
     if not yes:
         _print_warning("This will permanently delete all local igp-ride data.")
         _print_warning(
-            "Saved credentials and session data in the system keychain will also be removed."
+            "Saved credentials and session data will also be removed."
         )
         _print_field("Data Path", format_path(config.data_dir))
         _print_field("Config Path", format_path(config.session_file.parent))

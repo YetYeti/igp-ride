@@ -12,7 +12,6 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from igp_ride.config import load_session_data, save_session_data
 from igp_ride.utils import ensure_dir, get_logger
 
 
@@ -222,8 +221,7 @@ class IGPSportClient:
         username = payload.get("username")
         if isinstance(username, str) and username:
             self.username = username
-        session_data = load_session_data(self.username)
-        cookies = session_data.get("cookies")
+        cookies = payload.get("cookies")
         if isinstance(cookies, dict):
             filtered_cookies = {
                 key: value
@@ -233,16 +231,16 @@ class IGPSportClient:
             self._session.cookies.update(filtered_cookies)
         else:
             filtered_cookies = {}
-        authorization = session_data.get("authorization")
+        authorization = payload.get("authorization")
         if isinstance(authorization, str) and authorization:
             self._session.headers.update({"Authorization": authorization})
-        access_token = session_data.get("access_token")
+        access_token = payload.get("access_token")
         if isinstance(access_token, str) and access_token:
             self._session.headers.update({"Authorization": f"Bearer {access_token}"})
-        refresh_token = session_data.get("refresh_token")
+        refresh_token = payload.get("refresh_token")
         if isinstance(refresh_token, str):
             self._refresh_token = refresh_token
-        expires_at = session_data.get("expires_at")
+        expires_at = payload.get("expires_at")
         if isinstance(expires_at, str):
             self._session_expires_at = _parse_iso_datetime(expires_at)
         saved_at = payload.get("saved_at")
@@ -265,26 +263,24 @@ class IGPSportClient:
             if isinstance(authorization_header, bytes)
             else authorization_header
         )
-        save_session_data(
-            self.username,
-            cookies=requests.utils.dict_from_cookiejar(self._session.cookies),
-            authorization=authorization,
-            access_token=_strip_bearer_prefix(authorization),
-            refresh_token=self._refresh_token,
-            expires_at=(
+        payload = {
+            "username": self.username,
+            "saved_at": datetime.now(UTC).isoformat(),
+            "cookies": requests.utils.dict_from_cookiejar(self._session.cookies),
+            "authorization": authorization,
+            "access_token": _strip_bearer_prefix(authorization),
+            "refresh_token": self._refresh_token,
+            "expires_at": (
                 self._session_expires_at.isoformat()
                 if self._session_expires_at is not None
                 else ""
             ),
-        )
-        payload = {
-            "username": self.username,
-            "saved_at": datetime.now(UTC).isoformat(),
         }
         self.session_path.write_text(
             json.dumps(payload, ensure_ascii=True, indent=2),
             encoding="utf-8",
         )
+        self.session_path.chmod(0o600)
 
     def _session_is_stale(self) -> bool:
         if not self._authenticated:

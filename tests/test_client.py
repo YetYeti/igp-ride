@@ -15,66 +15,60 @@ from igp_ride.client import (
 )
 
 
-def _write_session_file(session_path: Path, **overrides: str) -> None:
-    payload = {
+def _write_session_file(session_path: Path, **overrides: object) -> None:
+    payload: dict[str, object] = {
         "username": "stored-user",
         "saved_at": datetime(2026, 3, 1, tzinfo=UTC).isoformat(),
+        "cookies": {},
+        "authorization": "",
+        "access_token": "",
+        "refresh_token": "",
+        "expires_at": "",
     }
     payload.update(overrides)
     session_path.write_text(json.dumps(payload), encoding="utf-8")
 
 
 class TestSessionPersistence:
-    def test_save_session_stores_secrets_in_keyring(self, tmp_path: Path):
+    def test_save_session_stores_everything_in_session_file(self, tmp_path: Path):
         session_path = tmp_path / "session.json"
-        with patch("igp_ride.client.load_session_data", return_value={}):
-            client = IGPSportClient(
-                username="tester",
-                password="secret",
-                base_url="https://example.com",
-                session_path=session_path,
-            )
+        client = IGPSportClient(
+            username="tester",
+            password="secret",
+            base_url="https://example.com",
+            session_path=session_path,
+        )
         client._session.cookies.set("sessionid", "abc")
         client._session.headers.update({"Authorization": "Bearer token"})
 
-        with patch("igp_ride.client.save_session_data") as mock_save_session_data:
-            client._save_session()
+        client._save_session()
 
         payload = json.loads(session_path.read_text(encoding="utf-8"))
         assert payload["username"] == "tester"
         assert "saved_at" in payload
-        assert "cookies" not in payload
-        assert "authorization" not in payload
-        mock_save_session_data.assert_called_once_with(
-            "tester",
+        assert payload["cookies"] == {"sessionid": "abc"}
+        assert payload["authorization"] == "Bearer token"
+        assert payload["access_token"] == "token"
+        assert payload["refresh_token"] == ""
+        client.close()
+
+    def test_load_session_restores_full_state(self, tmp_path: Path):
+        session_path = tmp_path / "session.json"
+        _write_session_file(
+            session_path,
             cookies={"sessionid": "abc"},
             authorization="Bearer token",
             access_token="token",
-            refresh_token="",
-            expires_at="",
+            refresh_token="refresh",
+            expires_at="2026-03-01T12:00:00+00:00",
         )
-        client.close()
 
-    def test_load_session_restores_keyring_state(self, tmp_path: Path):
-        session_path = tmp_path / "session.json"
-        _write_session_file(session_path)
-
-        with patch(
-            "igp_ride.client.load_session_data",
-            return_value={
-                "cookies": {"sessionid": "abc"},
-                "authorization": "Bearer token",
-                "access_token": "token",
-                "refresh_token": "refresh",
-                "expires_at": "2026-03-01T12:00:00+00:00",
-            },
-        ):
-            client = IGPSportClient(
-                username="ignored",
-                password="secret",
-                base_url="https://example.com",
-                session_path=session_path,
-            )
+        client = IGPSportClient(
+            username="ignored",
+            password="secret",
+            base_url="https://example.com",
+            session_path=session_path,
+        )
 
         assert client.username == "stored-user"
         assert client._session.cookies.get("sessionid") == "abc"
@@ -83,17 +77,16 @@ class TestSessionPersistence:
         assert client._authenticated is True
         client.close()
 
-    def test_load_session_without_keyring_data_requires_reauth(self, tmp_path: Path):
+    def test_load_session_without_auth_data_requires_reauth(self, tmp_path: Path):
         session_path = tmp_path / "session.json"
         _write_session_file(session_path)
 
-        with patch("igp_ride.client.load_session_data", return_value={}):
-            client = IGPSportClient(
-                username="ignored",
-                password="secret",
-                base_url="https://example.com",
-                session_path=session_path,
-            )
+        client = IGPSportClient(
+            username="ignored",
+            password="secret",
+            base_url="https://example.com",
+            session_path=session_path,
+        )
 
         assert client.username == "stored-user"
         assert client._authenticated is False

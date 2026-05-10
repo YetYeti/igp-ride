@@ -38,7 +38,6 @@ description: 使用 igp-ride 命令行工具同步 IGPSPORT 骑行活动到本�
 使用前确认环境满足：
 
 - Python 3.14 或更新版本
-- 可用的系统 keyring
 - IGPSPORT 账号
 - 如需上传到 Intervals.icu，需要 Intervals.icu API key
 
@@ -85,7 +84,7 @@ uv run igp-ride --help
 igp-ride login
 ```
 
-该命令会交互输入 IGPSPORT 用户名和密码，并将凭据保存到系统 keyring。
+该命令会交互输入 IGPSPORT 用户名和密码，并将凭据加密保存到本地文件。
 
 也可以通过环境变量提供凭据：
 
@@ -378,6 +377,12 @@ igp-ride icu sync
 * 配置目录
 * 数据目录
 * 日志目录
+
+### 凭证安全
+
+* 密码和 Intervals.icu API Key 使用 Fernet 对称加密存储在本地文件中
+* 加密密钥由机器信息（主机名 + 用户名）通过 PBKDF2 派生
+* Session 数据以明文 JSON 存储，文件权限 `0o600`，token 过期后自动重新认证
 
 ### macOS / Linux 默认路径
 
