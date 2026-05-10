@@ -1,252 +1,272 @@
 # igp-ride
 
-`igp-ride` 是一个面向 IGPSPORT 平台的轻量命令行工具，用于把骑行活动同步到本地 SQLite，并下载对应的 FIT 文件，方便后续查询、统计和备份。
+`igp-ride` is a minimal command-line tool for keeping IGPSPORT ride activities in a local SQLite database, downloading FIT files, and optionally uploading those FIT files to Intervals.icu.
 
-## 功能概览
+## Requirements
 
-- 登录 IGPSPORT 账号并缓存本地会话
-- 增量同步活动到本地 SQLite
-- 全量拉取历史活动
-- 下载或修复缺失、损坏的 FIT 文件
-- 查看活动列表与活动详情
-- 生成按月或按年的骑行统计
-- 将本地已下载的 FIT 活动上传同步到 Intervals.icu
-- 在 macOS 下以守护进程方式定时同步
+- Python 3.14 or newer
+- A working system keyring
+- An IGPSPORT account
+- An Intervals.icu API key if you want to upload activities to Intervals.icu
 
-## 平台支持
+## Install
 
-- macOS：完整支持 `login`、`logout`、`reset`、`update`、`list`、`show`、`stats`、`daemon start/stop/status/run`
-- Windows：支持 `login`、`logout`、`reset`、`update`、`list`、`show`、`stats`、`daemon run --once`
-- Windows 当前不支持 `daemon start`、`daemon stop`、`daemon status`
-- macOS 的后台定时同步通过 `LaunchAgent` 实现；Windows 当前只支持前台执行单次守护进程同步
-
-## 安装
+From a checked-out copy of this repository:
 
 ```bash
-# main 分支
-uv tool install git+https://github.com/YetYeti/igp-ride@main
-
-# 使用 dev 分支最新代码
-uv tool install git+https://github.com/YetYeti/igp-ride@dev
-
-igp-ride --help
+uv tool install .
 ```
 
-更新或在稳定版与 `dev` 分支之间切换时，给安装命令增加 `--upgrade` 即可。
+For development:
 
-## 快速开始
+```bash
+uv sync
+uv run igp-ride --help
+```
 
-### 1. 登录
+The installed console command is:
 
-交互式登录：
+```bash
+igp-ride
+```
+
+## Basic Workflow
+
+Log in to IGPSPORT:
 
 ```bash
 igp-ride login
 ```
 
-如果你在无交互环境中运行，可以通过环境变量传入凭据：
+The command prompts for your username and password. Credentials are saved in the system keyring.
 
-```bash
-IGP_USERNAME=<你的用户名> IGP_PASSWORD=<你的密码> igp-ride login
-```
-
-说明：
-
-- 该工具没有 `--password` 参数
-- 默认会把密码写入系统 keyring
-- macOS 会把会话数据写入系统 keyring
-- Windows 会把会话数据通过 DPAPI 加密后写入本地会话文件
-- 登录后会在本地保存用户名和会话时间戳
-
-### 2. 同步活动
-
-默认增量同步：
+Sync rides and FIT files:
 
 ```bash
 igp-ride update
 ```
 
-全量同步历史活动：
-
-```bash
-igp-ride update --all
-```
-
-### 3. 查看活动
-
-查看活动列表：
+List local rides:
 
 ```bash
 igp-ride list
-igp-ride list --sort distance --desc --limit 10
-igp-ride list --sort power --asc --limit 10
 ```
 
-查看最近一次活动：
+Show the newest ride:
 
 ```bash
 igp-ride show last
 ```
 
-查看指定活动：
+Show one ride by IGPSPORT ride ID:
 
 ```bash
-igp-ride show <ride_id>
+igp-ride show 123456
 ```
 
-### 4. 查看统计
+## Commands
 
-按月统计：
+### `login`
 
 ```bash
-igp-ride stats
+igp-ride login
 ```
 
-按年统计：
+Logs in to IGPSPORT and saves credentials/session data locally.
+
+No options.
+
+### `logout`
 
 ```bash
-igp-ride stats --by year
+igp-ride logout
+igp-ride logout --yes
 ```
 
-### 5. 同步到 Intervals.icu
+Clears local IGPSPORT credentials and session data.
 
-先在 Intervals.icu 设置页创建个人 API key，然后保存到本地配置：
+Without `--yes`, the command asks for confirmation and only continues when you type `LOGOUT`.
+
+Options:
+
+- `--yes`: skip confirmation.
+
+### `reset`
+
+```bash
+igp-ride reset
+igp-ride reset --yes
+```
+
+Deletes local `igp-ride` data, including the SQLite database, downloaded FIT files, IGPSPORT credentials, and session data.
+
+Without `--yes`, the command asks for confirmation and only continues when you type `RESET`.
+
+Options:
+
+- `--yes`: skip confirmation.
+
+### `update`
+
+```bash
+igp-ride update
+igp-ride update --all
+```
+
+Fetches IGPSPORT activities, stores them in the local SQLite database, downloads FIT files, and repairs missing or invalid FIT files.
+
+By default, `update` performs an incremental sync. Use `--all` to force a full activity refresh.
+
+Options:
+
+- `--all`: force a full update of all available activities.
+
+### `list`
+
+```bash
+igp-ride list
+igp-ride list --limit 10
+igp-ride list --sort distance --desc
+igp-ride list --sort power --asc --limit 10
+```
+
+Lists activities already stored in the local database. This command does not contact IGPSPORT.
+
+Options:
+
+- `--limit N`: show at most `N` activities.
+- `--sort date|distance|time|speed|elev|power`: choose the sort field. Default is `date`.
+- `--asc`: sort ascending.
+- `--desc`: sort descending.
+
+If neither `--asc` nor `--desc` is provided, output is descending.
+
+### `show`
+
+```bash
+igp-ride show last
+igp-ride show 123456
+```
+
+Shows details for one local activity. Use `last` for the newest local activity, or pass a ride ID.
+
+This command does not contact IGPSPORT.
+
+## Intervals.icu
+
+### `icu login`
 
 ```bash
 igp-ride icu login
+igp-ride icu login --api-key YOUR_API_KEY
 ```
 
-也可以直接通过参数传入 API key：
+Saves an Intervals.icu API key. If `--api-key` is not provided, the command prompts securely.
+
+Options:
+
+- `--api-key API_KEY`: pass the API key non-interactively.
+
+### `icu logout`
 
 ```bash
-igp-ride icu login --api-key <你的 Intervals.icu API key>
+igp-ride icu logout
+igp-ride icu logout --yes
 ```
 
-查看当前 Intervals.icu 配置与认证状态：
+Clears the saved Intervals.icu API key and local ICU config file. It does not delete local rides or ICU sync history stored in the local database.
+
+Without `--yes`, the command asks for confirmation and only continues when you type `LOGOUT`.
+
+Options:
+
+- `--yes`: skip confirmation.
+
+### `icu status`
 
 ```bash
 igp-ride icu status
 ```
 
-清除本地保存的 Intervals.icu 配置：
+Shows whether an Intervals.icu API key is configured and checks whether the key can authenticate with Intervals.icu.
 
-```bash
-igp-ride icu logout
-```
+No options.
 
-该命令会要求输入 `LOGOUT` 确认；如需跳过确认：
-
-```bash
-igp-ride icu logout --yes
-```
-
-先 dry-run 查看会同步哪些本地 FIT 活动：
+### `icu sync`
 
 ```bash
 igp-ride icu sync --dry-run
-```
-
-确认后正式上传：
-
-```bash
 igp-ride icu sync
 ```
 
-常用选项：
+Uploads local downloaded FIT files to Intervals.icu.
+
+The sync uses `external_id=igp-<ride_id>` so repeated runs can detect activities that already exist remotely. Activities that failed in a previous run are retried by the next `igp-ride icu sync`.
+
+Options:
+
+- `--dry-run`: show what would be synced without uploading or changing local sync state.
+
+## Configuration And Storage
+
+`igp-ride` uses platform-specific user directories.
+
+On macOS and Linux, defaults are:
+
+- Config directory: `~/.config/igp-ride`
+- Session file: `~/.config/igp-ride/session.json`
+- ICU config file: `~/.config/igp-ride/icu.json`
+- Data directory: `~/.local/share/igp-ride`
+- SQLite database: `~/.local/share/igp-ride/rides.db`
+- FIT directory: `~/.local/share/igp-ride/fit`
+- Log file: `~/.local/share/igp-ride/logs/igp-ride.log`
+
+On Windows, directories are resolved with `platformdirs`:
+
+- Config directory: `%APPDATA%\igp-ride`
+- Session file: `%APPDATA%\igp-ride\session.json`
+- Session data file: `%APPDATA%\igp-ride\session_data.json`
+- ICU config file: `%APPDATA%\igp-ride\icu.json`
+- Data directory: `%LOCALAPPDATA%\igp-ride`
+- SQLite database: `%LOCALAPPDATA%\igp-ride\rides.db`
+- FIT directory: `%LOCALAPPDATA%\igp-ride\fit`
+
+## Environment Variables
+
+IGPSPORT:
+
+- `IGP_USERNAME`: username used by commands that need IGPSPORT credentials.
+- `IGP_PASSWORD`: password used by commands that need IGPSPORT credentials.
+
+Intervals.icu:
+
+- `IGP_RIDE_ICU_API_KEY`: Intervals.icu API key.
+- `INTERVALS_ICU_API_KEY`: alternate Intervals.icu API key variable.
+- `IGP_RIDE_ICU_ATHLETE_ID`: optional athlete ID override.
+- `INTERVALS_ICU_ATHLETE_ID`: alternate athlete ID variable.
+- `IGP_RIDE_ICU_BASE_URL`: optional Intervals.icu API base URL override.
+
+The CLI does not expose athlete ID or base URL flags. The default Intervals.icu athlete is `0`, which means the API key's current athlete.
+
+## Exit Codes
+
+- `0`: success or cancelled confirmation.
+- `2`: configuration or value error.
+- `3`: IGPSPORT authentication error.
+- `4`: network error.
+- `5`: database error.
+- `6`: data sync error.
+- `7`: file error.
+- `8`: requested activity was not found.
+- `10`: reset completed with at least one deletion failure.
+
+## Development Checks
 
 ```bash
-igp-ride icu sync --since 2026-01-01
-igp-ride icu sync --retry-failed
+uv run pytest
+uv run ruff check
+uv run basedpyright
 ```
-
-说明：
-
-- API key 会保存到系统 keyring
-- 同步默认使用 Intervals.icu API 的 athlete `0`，即 API key 对应的当前用户
-- 环境变量仍然优先于本地保存的配置：`IGP_RIDE_ICU_API_KEY`
-- 只会同步本地数据库里 `fit_file_status=downloaded` 的活动
-- 上传时使用 `external_id=igp-<ride_id>`，用于避免重复上传
-- 如果 Intervals.icu 里已经有相同 `external_id` 的活动，本地会标记为已同步
-- 默认不会在 `igp-ride update` 后自动上传，避免意外把本地数据推到远端
-
-## 守护进程模式
-
-macOS：
-
-- `daemon start` 会安装并加载 `LaunchAgent`
-- 加载后会先执行一轮同步，之后按 `--interval` 周期运行
-- 重启并重新登录后会自动恢复
-
-Windows：
-
-- 当前不支持 `daemon start`、`daemon stop`、`daemon status`
-- 如需前台执行一轮同步，可继续使用 `igp-ride daemon run --once`
-
-启动后台定时同步：
-
-```bash
-igp-ride daemon start --interval 30m
-```
-
-每次发现新活动后执行 hook：
-
-```bash
-igp-ride daemon start --interval 1h --hook "echo new rides"
-```
-
-查看守护进程状态：
-
-```bash
-igp-ride daemon status
-```
-
-停止守护进程：
-
-```bash
-igp-ride daemon stop
-```
-
-手动前台执行一轮守护进程同步：
-
-```bash
-igp-ride daemon run --once
-```
-
-## 数据存储位置
-
-工具会按当前平台使用对应的配置、数据和日志目录。
-
-macOS 默认使用 XDG 目录：
-
-- 配置目录：`~/.config/igp-ride`
-- 会话文件：`~/.config/igp-ride/session.json`
-- 数据目录：`~/.local/share/igp-ride`
-- SQLite 数据库：`~/.local/share/igp-ride/rides.db`
-- FIT 文件目录：`~/.local/share/igp-ride/fit`
-- 日志目录：`~/.local/share/igp-ride/logs`
-- LaunchAgent：`~/Library/LaunchAgents/com.yetyeti.igp-ride.daemon.plist`
-
-Windows 默认目录：
-
-- 配置目录：`%APPDATA%\igp-ride`
-- 会话文件：`%APPDATA%\igp-ride\session.json`
-- 会话数据文件：`%APPDATA%\igp-ride\session_data.json`
-- 数据目录：`%LOCALAPPDATA%\igp-ride`
-- SQLite 数据库：`%LOCALAPPDATA%\igp-ride\rides.db`
-- FIT 文件目录：`%LOCALAPPDATA%\igp-ride\fit`
-- 日志目录：`%LOCALAPPDATA%\igp-ride\Logs`
-
-## 认证与安全
-
-- 默认服务接口为 `https://prod.zh.igpsport.com/service`
-- 用户名和密码通过系统 keyring 保存
-- CLI 使用 IGPSPORT service token API 登录，并用 bearer token 访问活动接口
-- macOS bearer 会话数据通过系统 keyring 保存
-- Windows bearer 会话数据通过当前用户 DPAPI 加密后保存在 `%APPDATA%\igp-ride\session_data.json`
-- Windows 会话数据文件会尝试收紧为仅当前用户可读写
-- `session.json` 不直接保存密码
-- `logout` 只清理本地凭据和会话
-- `reset` 会删除数据库、FIT 文件、凭据和会话，请谨慎使用
 
 ## License
 
