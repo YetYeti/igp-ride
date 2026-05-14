@@ -15,7 +15,7 @@
 
 ## 环境要求
 
-- Python 3.14 或更新版本
+- Python 3.12 或更新版本
 - IGPSPORT 账号
 - 如需同步到 Intervals.icu，需要 Intervals.icu API key
 
@@ -41,6 +41,8 @@ uv tool install --upgrade git+https://github.com/YetYeti/igp-ride@main
 igp-ride --help
 ```
 
+直接运行 `igp-ride` 会显示欢迎信息和 quick start。
+
 ### 本地开发安装
 
 在本仓库目录中安装为本地工具：
@@ -64,7 +66,7 @@ uv run igp-ride --help
 igp-ride login
 ```
 
-该命令会交互输入用户名和密码，并把凭据加密保存到本地文件。
+首次登录时，该命令会交互输入用户名和密码，并把凭据加密保存到本地文件。已保存凭据后再次执行 `igp-ride login` 会复用已保存的账号密码重新登录。
 
 同步活动和 FIT 文件：
 
@@ -113,6 +115,10 @@ igp-ride login --username YOUR_USERNAME --password-stdin
 
 登录 IGPSPORT，并保存本地凭据和 session 数据。
 
+已保存账号后，`igp-ride login` 会复用已保存的 username/password。使用 `--username` 指定同一账号时也会复用已保存密码。
+
+如果 `--username` 与已保存 username 不同，`igp-ride` 会把它视为切换账号：不会复用旧账号密码，必须通过 `--password-stdin`、`IGP_PASSWORD` 或交互输入提供新密码。新账号登录成功后才会覆盖本地凭据和 session；如果密码错误或网络失败，旧账号的本地状态会保留。
+
 参数：
 
 - `--username USERNAME`：指定 IGPSPORT 用户名。
@@ -138,6 +144,16 @@ igp-ride logout --yes
 参数：
 
 - `--yes`：跳过确认。
+
+### `status`
+
+```bash
+igp-ride status
+```
+
+显示 IGPSPORT 本地凭据是否存在、session 文件是否存在，并检查当前凭据/session 是否能通过 IGPSPORT 认证。
+
+无参数。
 
 ### `reset`
 
@@ -174,6 +190,7 @@ igp-ride update --all
 ```bash
 igp-ride list
 igp-ride list --limit 10
+igp-ride list --since 2026-03-01
 igp-ride list --sort distance --desc
 igp-ride list --sort power --asc --limit 10
 ```
@@ -183,6 +200,7 @@ igp-ride list --sort power --asc --limit 10
 参数：
 
 - `--limit N`：最多显示 `N` 条活动。
+- `--since YYYY-MM-DD`：只显示该日期及之后的活动。
 - `--sort date|distance|time|speed|elev|power`：选择排序字段，默认是 `date`。
 - `--asc`：升序排序。
 - `--desc`：降序排序。
@@ -196,7 +214,7 @@ igp-ride show last
 igp-ride show 123456
 ```
 
-显示一条本地活动的详情。使用 `last` 查看最新活动，也可以传入 ride ID。
+显示一条本地活动的详情。使用 `last` 查看最新活动，也可以传入纯数字 ride ID。
 
 该命令不会连接 IGPSPORT。
 
@@ -251,6 +269,7 @@ igp-ride icu status
 ```bash
 igp-ride icu sync --dry-run
 igp-ride icu sync
+igp-ride icu sync --force
 ```
 
 将本地已下载的 FIT 文件上传到 Intervals.icu。
@@ -260,6 +279,7 @@ igp-ride icu sync
 参数：
 
 - `--dry-run`：只显示将要同步的内容，不上传，也不修改本地同步状态。
+- `--force`：忽略本地 ICU 同步状态，重新按 `external_id=igp-<ride_id>` 检查远端；远端已存在则标记为已同步，远端不存在才重新上传。
 
 ## 配置与数据位置
 
