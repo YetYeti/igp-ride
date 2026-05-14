@@ -85,6 +85,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip interactive confirmation",
     )
+    subparsers.add_parser(
+        "status",
+        help="Check saved IGPSPORT credentials and session status",
+    )
     reset_parser = subparsers.add_parser(
         "reset",
         help="Delete all local stored data (database, FIT files, credentials, session)",
@@ -187,6 +191,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return cmd_login(args.username, args.password_stdin)
             if args.command == "logout":
                 return cmd_logout(args.yes)
+            if args.command == "status":
+                return cmd_status()
             if args.command == "reset":
                 return cmd_reset(args.yes)
             if args.command == "update":
@@ -437,6 +443,56 @@ def cmd_logout(yes: bool) -> int:
 
     _print_result("success")
     _print_field("Path", format_path(config.session_file))
+    return 0
+
+
+def cmd_status() -> int:
+    config = AppConfig.load()
+    has_credentials = bool(config.username and config.password)
+    session_exists = config.session_file.exists()
+    payload: dict[str, object] = {
+        "command": "status",
+        "result": "success",
+        "credentials": has_credentials,
+        "session": session_exists,
+        "authenticated": False,
+    }
+
+    if not _json_output():
+        _print_title("Status")
+        _print_field("Credentials", has_credentials)
+        _print_field("Session", session_exists)
+
+    if not has_credentials:
+        if _json_output():
+            payload["tips"] = ["Run igp-ride login"]
+            _print_json(payload)
+            return 0
+        _print_field("Authenticated", False)
+        _print_tip("Run igp-ride login")
+        return 0
+
+    service = RideSyncService(config)
+    try:
+        try:
+            service.client.get_activity_page(page=1, page_size=1)
+        except (AuthenticationError, requests.RequestException) as exc:
+            if _json_output():
+                payload["error"] = str(exc)
+                _print_json(payload)
+                return 0
+            _print_field("Authenticated", False)
+            _print_error_line(str(exc))
+            return 0
+    finally:
+        service.close()
+
+    if _json_output():
+        payload["authenticated"] = True
+        _print_json(payload)
+        return 0
+
+    _print_field("Authenticated", True)
     return 0
 
 
@@ -967,6 +1023,7 @@ def _command_title(args: argparse.Namespace) -> str:
     command_titles: Final[dict[str, str]] = {
         "login": "Login",
         "logout": "Logout",
+        "status": "Status",
         "reset": "Reset",
         "update": "Update",
         "icu": _icu_command_title(args),

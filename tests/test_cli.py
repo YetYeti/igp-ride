@@ -308,6 +308,73 @@ class TestLoginLogoutOutput:
         cmd.assert_called_once_with(True)
 
 
+class TestStatusOutput:
+    def test_status_without_credentials_prints_tip(self, tmp_path: Path, capsys):
+        from igp_ride.cli import cmd_status
+
+        config = AppConfig(
+            username="",
+            password="",
+            data_dir=tmp_path / "data",
+            fit_dir=tmp_path / "data" / "fit",
+            session_file=tmp_path / "config" / "session.json",
+            db_path=tmp_path / "data" / "rides.db",
+        )
+
+        with patch("igp_ride.cli.AppConfig.load", return_value=config):
+            exit_code = cmd_status()
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        assert "== Status ==" in captured.out
+        assert "Credentials: no" in captured.out
+        assert "Session: no" in captured.out
+        assert "Authenticated: no" in captured.out
+        assert "Tip: Run igp-ride login" in captured.out
+
+    def test_status_checks_igpsport_session(self, tmp_path: Path, capsys):
+        from igp_ride.cli import cmd_status
+
+        config = _make_config(tmp_path)
+        config.session_file.parent.mkdir(parents=True)
+        config.session_file.write_text("{}", encoding="utf-8")
+        service = MagicMock()
+        service.client.get_activity_page.return_value = ([], 0)
+
+        with (
+            patch("igp_ride.cli.AppConfig.load", return_value=config),
+            patch("igp_ride.cli.RideSyncService", return_value=service),
+        ):
+            exit_code = cmd_status()
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        assert "Credentials: yes" in captured.out
+        assert "Session: yes" in captured.out
+        assert "Authenticated: yes" in captured.out
+        service.client.get_activity_page.assert_called_once_with(page=1, page_size=1)
+        service.close.assert_called_once_with()
+
+    def test_status_json_without_credentials(self, tmp_path: Path, capsys):
+        config = AppConfig(
+            username="",
+            password="",
+            data_dir=tmp_path / "data",
+            fit_dir=tmp_path / "data" / "fit",
+            session_file=tmp_path / "config" / "session.json",
+            db_path=tmp_path / "data" / "rides.db",
+        )
+
+        with patch("igp_ride.cli.AppConfig.load", return_value=config):
+            exit_code = main(["--format", "json", "status"])
+
+        payload = json.loads(capsys.readouterr().out)
+        assert exit_code == 0
+        assert payload["command"] == "status"
+        assert payload["credentials"] is False
+        assert payload["authenticated"] is False
+
+
 class TestIcuOutput:
     def test_main_routes_icu_login_options(self):
         with patch("igp_ride.cli.cmd_icu_login", return_value=0) as cmd:
