@@ -38,7 +38,9 @@ class TestAppConfig:
         cred_file = tmp_path / "credentials.json"
         with (
             patch("igp_ride.config.ensure_runtime_dirs"),
-            patch("igp_ride.config.get_default_credentials_file", return_value=cred_file),
+            patch(
+                "igp_ride.config.get_default_credentials_file", return_value=cred_file
+            ),
             patch("igp_ride.config._load_password", return_value="decrypted-pw"),
             patch("igp_ride.config._read_stored_username", return_value="tester"),
         ):
@@ -124,7 +126,9 @@ class TestCredentialStorage:
         cred_file = tmp_path / "credentials.json"
 
         with (
-            patch("igp_ride.config.get_default_credentials_file", return_value=cred_file),
+            patch(
+                "igp_ride.config.get_default_credentials_file", return_value=cred_file
+            ),
             patch("igp_ride.config.encrypt_value", return_value="ENC_TOKEN"),
         ):
             save_credentials("tester", "secret")
@@ -138,7 +142,9 @@ class TestCredentialStorage:
         cred_file = tmp_path / "credentials.json"
         cred_file.write_text("{}", encoding="utf-8")
 
-        with patch("igp_ride.config.get_default_credentials_file", return_value=cred_file):
+        with patch(
+            "igp_ride.config.get_default_credentials_file", return_value=cred_file
+        ):
             delete_credentials()
 
         assert not cred_file.exists()
@@ -146,7 +152,9 @@ class TestCredentialStorage:
     def test_delete_credentials_tolerates_missing_file(self, tmp_path: Path):
         cred_file = tmp_path / "credentials.json"
 
-        with patch("igp_ride.config.get_default_credentials_file", return_value=cred_file):
+        with patch(
+            "igp_ride.config.get_default_credentials_file", return_value=cred_file
+        ):
             delete_credentials()
 
 
@@ -169,7 +177,9 @@ class TestIcuConfigStorage:
         icu_file = tmp_path / "icu.json"
         icu_file.write_text("{}", encoding="utf-8")
 
-        with patch("igp_ride.config.get_default_icu_config_file", return_value=icu_file):
+        with patch(
+            "igp_ride.config.get_default_icu_config_file", return_value=icu_file
+        ):
             clear_icu_config()
 
         assert not icu_file.exists()
@@ -177,5 +187,7 @@ class TestIcuConfigStorage:
     def test_clear_icu_config_tolerates_missing_file(self, tmp_path: Path):
         icu_file = tmp_path / "icu.json"
 
-        with patch("igp_ride.config.get_default_icu_config_file", return_value=icu_file):
+        with patch(
+            "igp_ride.config.get_default_icu_config_file", return_value=icu_file
+        ):
             clear_icu_config()

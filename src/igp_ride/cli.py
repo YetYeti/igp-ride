@@ -289,7 +289,9 @@ def cmd_login(username: str | None = None, password_stdin: bool = False) -> int:
     password = _read_secret_stdin("IGPSPORT password") if password_stdin else None
     if _input_disabled():
         if not username and not config.username:
-            raise ConfigurationError("Missing username. Pass --username or set IGP_USERNAME.")
+            raise ConfigurationError(
+                "Missing username. Pass --username or set IGP_USERNAME."
+            )
         if not password and not config.password:
             raise ConfigurationError(
                 "Missing password. Pass --password-stdin or set IGP_PASSWORD."
@@ -421,7 +423,9 @@ def cmd_logout(yes: bool) -> int:
             raise ConfigurationError("Confirmation required. Pass --yes to run logout.")
         _print_title("Logout")
         _print_warning("This will clear local IGPSPORT credentials and session.")
-        _print_warning("Local activities, FIT files, and ICU config will not be deleted.")
+        _print_warning(
+            "Local activities, FIT files, and ICU config will not be deleted."
+        )
         print()
         confirm = input("Type LOGOUT to confirm: ").strip()
         if confirm != "LOGOUT":
@@ -548,7 +552,9 @@ def cmd_icu_login(api_key_stdin: bool = False) -> int:
 def cmd_icu_logout(yes: bool) -> int:
     if not yes:
         if _input_disabled():
-            raise ConfigurationError("Confirmation required. Pass --yes to run icu logout.")
+            raise ConfigurationError(
+                "Confirmation required. Pass --yes to run icu logout."
+            )
         _print_title("ICU Logout")
         _print_warning("This will remove the saved Intervals.icu API key.")
         _print_warning("Local activities and ICU sync history will not be deleted.")
@@ -733,7 +739,9 @@ def cmd_list(
                 "sort": sort_by,
                 "descending": descending,
                 "count": len(activities),
-                "activities": [_activity_list_payload(activity) for activity in activities],
+                "activities": [
+                    _activity_list_payload(activity) for activity in activities
+                ],
                 "tips": (
                     ["Run igp-ride update to download activities from IGPSPORT"]
                     if not activities
@@ -783,6 +791,7 @@ def cmd_list(
         )
     return 0
 
+
 def cmd_reset(yes: bool) -> int:
     config = AppConfig.load()
     if not yes:
@@ -790,9 +799,7 @@ def cmd_reset(yes: bool) -> int:
             raise ConfigurationError("Confirmation required. Pass --yes to run reset.")
         _print_title("Reset")
         _print_warning("This will permanently delete all local igp-ride data.")
-        _print_warning(
-            "Saved credentials and session data will also be removed."
-        )
+        _print_warning("Saved credentials and session data will also be removed.")
         _print_field("Data Path", format_path(config.data_dir))
         _print_field("Config Path", format_path(config.session_file.parent))
         print()
@@ -979,6 +986,11 @@ def format_path(path: Path) -> str:
     abs_path = path.resolve()
     if sys.platform == "win32":
         return str(abs_path)
+    home = Path.home().resolve()
+    try:
+        return f"~/{abs_path.relative_to(home)}"
+    except ValueError:
+        return str(abs_path)
 
 
 def _display_width(value: str) -> int:
@@ -994,11 +1006,6 @@ def _display_ljust(value: str, width: int) -> str:
 def _display_rjust(value: str, width: int) -> str:
     padding = max(width - _display_width(value), 0)
     return f"{' ' * padding}{value}"
-    home = Path.home().resolve()
-    try:
-        return f"~/{abs_path.relative_to(home)}"
-    except ValueError:
-        return str(abs_path)
 
 
 def _as_str_state(value: object) -> str:

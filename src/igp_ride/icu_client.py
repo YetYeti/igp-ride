@@ -49,7 +49,9 @@ class IntervalsIcuClient:
         )
         payload = _decode_json_response(response)
         if not isinstance(payload, dict):
-            raise ICUClientError("Intervals.icu returned an unexpected athlete response.")
+            raise ICUClientError(
+                "Intervals.icu returned an unexpected athlete response."
+            )
         return cast(dict[str, Any], payload)
 
     def list_activities(
@@ -71,7 +73,9 @@ class IntervalsIcuClient:
         payload = _decode_json_response(response)
         if not isinstance(payload, list):
             raise ICUClientError("Intervals.icu returned an unexpected activity list.")
-        return [_parse_activity_summary(item) for item in payload if isinstance(item, dict)]
+        return [
+            _parse_activity_summary(item) for item in payload if isinstance(item, dict)
+        ]
 
     def upload_activity_file(
         self,
@@ -96,7 +100,9 @@ class IntervalsIcuClient:
             )
         payload = _decode_json_response(response)
         if not isinstance(payload, dict):
-            raise ICUClientError("Intervals.icu returned an unexpected upload response.")
+            raise ICUClientError(
+                "Intervals.icu returned an unexpected upload response."
+            )
         activity_id = payload.get("id")
         if not isinstance(activity_id, str) or not activity_id:
             raise ICUClientError("Intervals.icu upload response did not include an id.")
@@ -123,7 +129,9 @@ def _decode_json_response(response: requests.Response) -> object:
         status = exc.response.status_code if exc.response is not None else 0
         if status == 401:
             raise ICUClientError("Intervals.icu authentication failed.") from exc
-        raise ICUClientError(f"Intervals.icu request failed with HTTP {status}.") from exc
+        raise ICUClientError(
+            f"Intervals.icu request failed with HTTP {status}."
+        ) from exc
     try:
         return response.json()
     except ValueError as exc:

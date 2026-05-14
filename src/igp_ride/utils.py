@@ -25,7 +25,10 @@ def get_config_dir() -> Path:
 
 def get_data_dir() -> Path:
     if sys.platform != "win32":
-        return Path(os.getenv("XDG_DATA_HOME", Path.home() / ".local" / "share")) / APP_NAME
+        return (
+            Path(os.getenv("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+            / APP_NAME
+        )
     return Path(user_data_path(APP_NAME, appauthor=False, ensure_exists=False))
 
 

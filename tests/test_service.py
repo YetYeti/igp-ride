@@ -470,7 +470,9 @@ class TestRepair:
 
             assert summary.remote_fetched == 1
             assert summary.updated_activities == 1
-            mock_client.download_fit_file.assert_called_once_with(1, config.fit_dir / "1.fit")
+            mock_client.download_fit_file.assert_called_once_with(
+                1, config.fit_dir / "1.fit"
+            )
             mock_db.upsert.assert_called_once()
 
     def test_repair_skips_downloaded_activity_with_valid_fit_header(
