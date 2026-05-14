@@ -76,6 +76,7 @@ class IGPSportClient:
         password: str,
         base_url: str,
         session_path: Path,
+        load_session: bool = True,
     ):
         self.username = username
         self.password = password
@@ -87,12 +88,13 @@ class IGPSportClient:
         self._session_saved_at: datetime | None = None
         self._session_expires_at: datetime | None = None
         self._refresh_token = ""
-        self._load_session()
+        if load_session:
+            self._load_session()
 
     def close(self) -> None:
         self._session.close()
 
-    def login(self) -> None:
+    def login(self, *, save_session: bool = True) -> None:
         logger.debug("Attempting login for user: %s", self.username)
         url = f"{self.base_url}/auth/account/login"
         data = {
@@ -127,7 +129,8 @@ class IGPSportClient:
 
         self._authenticated = True
         self._session_saved_at = datetime.now(UTC)
-        self._save_session()
+        if save_session:
+            self.save_session()
         logger.info("Login successful for user: %s", self.username)
 
     @auth_retry()
@@ -254,7 +257,7 @@ class IGPSportClient:
         if self._authenticated:
             logger.debug("Session loaded successfully")
 
-    def _save_session(self) -> None:
+    def save_session(self) -> None:
         ensure_dir(self.session_path.parent)
         logger.debug("Saving session to: %s", self.session_path)
         authorization_header = self._session.headers.get("Authorization", "")
@@ -281,6 +284,9 @@ class IGPSportClient:
             encoding="utf-8",
         )
         self.session_path.chmod(0o600)
+
+    def _save_session(self) -> None:
+        self.save_session()
 
     def _session_is_stale(self) -> bool:
         if not self._authenticated:

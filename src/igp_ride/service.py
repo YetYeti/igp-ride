@@ -102,6 +102,27 @@ class RideSyncService:
             raise ValueError("Username and password are required.")
 
         logger.info("Logging in as: %s", final_username)
+        if self.config.username and final_username != self.config.username:
+            candidate = IGPSportClient(
+                username=final_username,
+                password=final_password,
+                base_url=self.config.base_url,
+                session_path=self.config.session_file,
+                load_session=False,
+            )
+            try:
+                candidate.login(save_session=False)
+            except Exception:
+                candidate.close()
+                raise
+
+            self.client.close()
+            self.client = candidate
+            self.client.save_session()
+            save_credentials(final_username, final_password)
+            logger.info("Credentials saved")
+            return final_username, self.config.session_file
+
         self.client.username = final_username
         self.client.password = final_password
         self.client.login()

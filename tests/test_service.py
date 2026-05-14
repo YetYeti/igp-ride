@@ -4,6 +4,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from igp_ride.client import AuthenticationError
 from igp_ride.service import (
     IcuSyncProgress,
     IcuSyncSummary,
@@ -630,6 +633,79 @@ class TestLogin:
         assert mock_client.password == "stored-password"
         mock_client.login.assert_called_once_with()
         mock_save_credentials.assert_called_once_with("stored-user", "stored-password")
+
+    def test_login_switch_user_preserves_old_state_when_new_login_fails(
+        self, tmp_path: Path
+    ):
+        config = MagicMock()
+        config.db_path = tmp_path / "test.db"
+        config.fit_dir = tmp_path / "fit"
+        config.username = "stored-user"
+        config.password = "stored-password"
+        config.base_url = "https://example.com"
+        config.session_file = tmp_path / "session.json"
+        existing_client = MagicMock()
+        candidate_client = MagicMock()
+        candidate_client.login.side_effect = AuthenticationError("bad password")
+
+        with (
+            patch(
+                "igp_ride.service.IGPSportClient",
+                side_effect=[existing_client, candidate_client],
+            ) as MockClient,
+            patch("igp_ride.service.ActivityDatabase"),
+            patch("igp_ride.service.save_credentials") as mock_save_credentials,
+        ):
+            service = RideSyncService(config)
+            with pytest.raises(AuthenticationError):
+                service.login(username="new-user", password="bad-password")
+
+        assert service.client is existing_client
+        MockClient.assert_any_call(
+            username="new-user",
+            password="bad-password",
+            base_url="https://example.com",
+            session_path=config.session_file,
+            load_session=False,
+        )
+        candidate_client.login.assert_called_once_with(save_session=False)
+        candidate_client.close.assert_called_once_with()
+        existing_client.close.assert_not_called()
+        candidate_client.save_session.assert_not_called()
+        mock_save_credentials.assert_not_called()
+
+    def test_login_switch_user_saves_new_state_only_after_success(self, tmp_path: Path):
+        config = MagicMock()
+        config.db_path = tmp_path / "test.db"
+        config.fit_dir = tmp_path / "fit"
+        config.username = "stored-user"
+        config.password = "stored-password"
+        config.base_url = "https://example.com"
+        config.session_file = tmp_path / "session.json"
+        existing_client = MagicMock()
+        candidate_client = MagicMock()
+
+        with (
+            patch(
+                "igp_ride.service.IGPSportClient",
+                side_effect=[existing_client, candidate_client],
+            ),
+            patch("igp_ride.service.ActivityDatabase"),
+            patch("igp_ride.service.save_credentials") as mock_save_credentials,
+        ):
+            service = RideSyncService(config)
+            account, session_path = service.login(
+                username="new-user",
+                password="new-password",
+            )
+
+        assert account == "new-user"
+        assert session_path == config.session_file
+        assert service.client is candidate_client
+        candidate_client.login.assert_called_once_with(save_session=False)
+        existing_client.close.assert_called_once_with()
+        candidate_client.save_session.assert_called_once_with()
+        mock_save_credentials.assert_called_once_with("new-user", "new-password")
 
 
 class TestCredentialCleanup:

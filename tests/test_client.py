@@ -115,7 +115,7 @@ class TestLogin:
 
         with (
             patch.object(client._session, "post", return_value=response) as post,
-            patch.object(client, "_save_session") as save_session,
+            patch.object(client, "save_session") as save_session,
         ):
             client.login()
 
@@ -133,6 +133,50 @@ class TestLogin:
         assert client._refresh_token == "refresh-token"
         assert client._session_expires_at is not None
         save_session.assert_called_once()
+        client.close()
+
+    def test_login_can_skip_session_save(self, tmp_path: Path):
+        client = IGPSportClient(
+            username="tester",
+            password="secret",
+            base_url="https://example.com/service",
+            session_path=tmp_path / "session.json",
+        )
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "code": 0,
+            "data": {
+                "access_token": "access-token",
+                "refresh_token": "refresh-token",
+                "expires_in": 604800,
+            },
+        }
+
+        with (
+            patch.object(client._session, "post", return_value=response),
+            patch.object(client, "save_session") as save_session,
+        ):
+            client.login(save_session=False)
+
+        assert client._session.headers["Authorization"] == "Bearer access-token"
+        save_session.assert_not_called()
+        client.close()
+
+    def test_can_skip_loading_existing_session(self, tmp_path: Path):
+        session_path = tmp_path / "session.json"
+        _write_session_file(session_path, username="stored-user")
+
+        client = IGPSportClient(
+            username="new-user",
+            password="secret",
+            base_url="https://example.com/service",
+            session_path=session_path,
+            load_session=False,
+        )
+
+        assert client.username == "new-user"
+        assert client._authenticated is False
         client.close()
 
     def test_login_raises_authentication_error_for_business_error(self, tmp_path: Path):
