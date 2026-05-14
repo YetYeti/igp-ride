@@ -178,6 +178,7 @@ class TestIcuSync:
         mock_db.get_activities_pending_icu_sync.assert_called_once_with(
             since=None,
             include_failed=True,
+            force=False,
         )
         MockIcuClient.assert_called_once_with(api_key="icu-key")
         mock_icu.list_activities.assert_called_once_with(oldest="2026-05-01")
@@ -217,6 +218,26 @@ class TestIcuSync:
         assert summary.uploaded == 0
         mock_icu.upload_activity_file.assert_not_called()
         mock_db.mark_icu_synced.assert_called_once()
+
+    def test_icu_sync_force_checks_all_downloaded_fit(self, tmp_path: Path):
+        config = _icu_config(tmp_path)
+
+        with (
+            patch("igp_ride.service.IGPSportClient"),
+            patch("igp_ride.service.ActivityDatabase") as MockDB,
+        ):
+            mock_db = MockDB.return_value
+            mock_db.get_activities_pending_icu_sync.return_value = []
+
+            service = RideSyncService(config)
+            summary = service.sync_icu(force=True)
+
+        assert summary == IcuSyncSummary(dry_run=False)
+        mock_db.get_activities_pending_icu_sync.assert_called_once_with(
+            since=None,
+            include_failed=True,
+            force=True,
+        )
 
     def test_icu_sync_dry_run_does_not_mutate(self, tmp_path: Path):
         config = _icu_config(tmp_path)

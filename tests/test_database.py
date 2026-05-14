@@ -127,6 +127,24 @@ class TestActivityDatabase:
         assert {a.ride_id for a in broken} == {2, 3}
         db.close()
 
+    def test_force_icu_sync_returns_already_synced_downloads(self, tmp_path: Path):
+        db = ActivityDatabase(tmp_path / "test.db")
+        db.upsert(_make_activity(ride_id=1, fit_file_status="downloaded"))
+        db.upsert(_make_activity(ride_id=2, fit_file_status="downloaded"))
+        db.mark_icu_synced(
+            2,
+            icu_activity_id="icu-2",
+            icu_external_id="igp-2",
+            synced_at=datetime(2026, 3, 2),
+        )
+
+        pending = db.get_activities_pending_icu_sync()
+        forced = db.get_activities_pending_icu_sync(force=True)
+
+        assert [activity.ride_id for activity in pending] == [1]
+        assert [activity.ride_id for activity in forced] == [1, 2]
+        db.close()
+
     def test_sync_meta(self, tmp_path: Path):
         db = ActivityDatabase(tmp_path / "test.db")
         assert db.get_sync_meta("last_sync_time") is None

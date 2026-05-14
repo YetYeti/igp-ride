@@ -497,18 +497,20 @@ class TestIcuOutput:
                     "icu",
                     "sync",
                     "--dry-run",
+                    "--force",
                 ]
             )
 
         assert exit_code == 0
-        cmd.assert_called_once_with(True)
+        cmd.assert_called_once_with(True, force=True)
 
     def test_icu_sync_prints_summary(self, tmp_path: Path, capsys):
         config = _make_config(tmp_path)
         service = MagicMock()
 
-        def sync_icu(*, dry_run, progress_callback):
+        def sync_icu(*, dry_run, force, progress_callback):
             assert dry_run is False
+            assert force is False
             assert progress_callback is not None
             progress_callback(IcuSyncProgress(done=0, total=3))
             progress_callback(IcuSyncProgress(done=1, total=3, uploaded=1))
@@ -533,6 +535,7 @@ class TestIcuOutput:
         assert exit_code == 0
         assert "== ICU Sync ==" in captured.out
         assert "Mode: upload" in captured.out
+        assert "Force: no" in captured.out
         assert (
             "Summary: candidates=3 uploaded=2 already_remote=1 skipped=0 "
             "failed=0 dry_run=no"
@@ -560,6 +563,7 @@ class TestIcuOutput:
         captured = capsys.readouterr()
         assert exit_code == 0
         assert "Mode: dry-run" in captured.out
+        assert "Force: no" in captured.out
         assert "dry_run=yes" in captured.out
         assert "Next: igp-ride icu sync" in captured.out
         service.sync_icu.assert_called_once()
@@ -600,6 +604,7 @@ class TestIcuOutput:
         payload = json.loads(captured.out)
         assert payload["command"] == "icu.sync"
         assert payload["mode"] == "dry-run"
+        assert payload["force"] is False
         assert payload["summary"]["dry_run"] is True
         assert captured.err == ""
         assert service.sync_icu.call_args.kwargs["progress_callback"] is None

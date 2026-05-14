@@ -145,6 +145,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Show what would be synced without uploading or changing local state",
     )
+    icu_sync_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Ignore local ICU sync state and re-check remote activities by external_id.",
+    )
 
     list_parser = subparsers.add_parser("list", help="List local activities")
     list_parser.add_argument("--limit", type=int, help="Show at most N activities")
@@ -504,7 +509,7 @@ def cmd_icu(args: argparse.Namespace) -> int:
     if args.icu_command == "status":
         return cmd_icu_status()
     if args.icu_command == "sync":
-        return cmd_icu_sync(args.dry_run)
+        return cmd_icu_sync(args.dry_run, force=args.force)
     raise ValueError(f"Unknown icu command: {args.icu_command}")
 
 
@@ -630,7 +635,7 @@ def cmd_icu_status() -> int:
     return 0
 
 
-def cmd_icu_sync(dry_run: bool) -> int:
+def cmd_icu_sync(dry_run: bool, *, force: bool = False) -> int:
     config = AppConfig.load()
     service = RideSyncService(config)
     tty_progress = sys.stderr.isatty() and not _json_output()
@@ -666,6 +671,7 @@ def cmd_icu_sync(dry_run: bool) -> int:
     try:
         summary = service.sync_icu(
             dry_run=dry_run,
+            force=force,
             progress_callback=None if _json_output() else render_progress,
         )
     finally:
@@ -680,6 +686,7 @@ def cmd_icu_sync(dry_run: bool) -> int:
                 "command": "icu.sync",
                 "result": "success",
                 "mode": "dry-run" if dry_run else "upload",
+                "force": force,
                 "summary": _icu_sync_summary_payload(summary),
                 "next": ["igp-ride icu sync"] if dry_run else [],
             }
@@ -689,6 +696,7 @@ def cmd_icu_sync(dry_run: bool) -> int:
     _print_title("ICU Sync")
     _print_result("success")
     _print_field("Mode", "dry-run" if dry_run else "upload")
+    _print_field("Force", force)
     _print_icu_sync_summary(summary)
     if dry_run:
         _print_next("igp-ride icu sync")

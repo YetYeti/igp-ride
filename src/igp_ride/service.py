@@ -410,6 +410,7 @@ class RideSyncService:
         since: date | None = None,
         include_failed: bool = True,
         dry_run: bool = False,
+        force: bool = False,
         progress_callback: Callable[[IcuSyncProgress], None] | None = None,
     ) -> IcuSyncSummary:
         if not self.config.icu_api_key:
@@ -421,6 +422,7 @@ class RideSyncService:
         pending = self.db.get_activities_pending_icu_sync(
             since=since,
             include_failed=include_failed,
+            force=force,
         )
         summary = IcuSyncSummary(candidates=len(pending), dry_run=dry_run)
         if not pending:

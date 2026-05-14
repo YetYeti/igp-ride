@@ -107,17 +107,21 @@ class ActivityDatabase:
         *,
         since: date | None = None,
         include_failed: bool = False,
+        force: bool = False,
     ) -> list[Activity]:
         query = """
             SELECT * FROM activities
             WHERE fit_file_status = 'downloaded'
-              AND icu_activity_id = ''
-              AND (icu_sync_status = 'pending'
         """
         params: list[object] = []
-        if include_failed:
-            query += " OR icu_sync_status = 'failed'"
-        query += ")"
+        if not force:
+            query += """
+              AND icu_activity_id = ''
+              AND (icu_sync_status = 'pending'
+            """
+            if include_failed:
+                query += " OR icu_sync_status = 'failed'"
+            query += ")"
         if since is not None:
             query += " AND date(start_time) >= ?"
             params.append(since.isoformat())
