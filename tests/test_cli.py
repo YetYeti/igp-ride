@@ -266,6 +266,82 @@ class TestLoginLogoutOutput:
         )
         assert "secret-from-stdin" not in captured.out
 
+    def test_login_new_username_no_input_requires_new_password(
+        self, tmp_path: Path, capsys
+    ):
+        config = _make_config(tmp_path)
+
+        with patch("igp_ride.cli.AppConfig.load", return_value=config):
+            exit_code = main(["--no-input", "login", "--username", "new-user"])
+
+        captured = capsys.readouterr()
+        assert exit_code == 2
+        assert "Missing password for new username" in captured.err
+
+    def test_login_same_username_no_input_reuses_stored_password(self, tmp_path: Path):
+        config = _make_config(tmp_path)
+        service = MagicMock()
+        service.login.return_value = ("tester", config.session_file)
+
+        with (
+            patch("igp_ride.cli.AppConfig.load", return_value=config),
+            patch("igp_ride.cli.RideSyncService", return_value=service),
+        ):
+            exit_code = main(["--no-input", "login", "--username", "tester"])
+
+        assert exit_code == 0
+        service.login.assert_called_once_with(username="tester", password=None)
+
+    def test_login_new_username_ignores_stored_password_interactively(
+        self, tmp_path: Path, capsys
+    ):
+        from igp_ride.cli import cmd_login
+
+        config = _make_config(tmp_path)
+        service = MagicMock()
+        service.login.return_value = ("new-user", config.session_file)
+
+        with (
+            patch("igp_ride.cli.AppConfig.load", return_value=config),
+            patch("igp_ride.cli.RideSyncService", return_value=service) as service_cls,
+        ):
+            exit_code = cmd_login("new-user")
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        service_config = service_cls.call_args.args[0]
+        assert service_config.username == "tester"
+        assert service_config.password == ""
+        service.login.assert_called_once_with(username="new-user", password=None)
+        assert "secret" not in captured.out
+
+    def test_login_new_username_accepts_env_password(self, tmp_path: Path, monkeypatch):
+        from igp_ride.cli import cmd_login
+
+        monkeypatch.setenv("IGP_PASSWORD", "env-secret")
+        base_config = _make_config(tmp_path)
+        config = AppConfig(
+            username=base_config.username,
+            password="env-secret",
+            data_dir=base_config.data_dir,
+            fit_dir=base_config.fit_dir,
+            session_file=base_config.session_file,
+            db_path=base_config.db_path,
+        )
+        service = MagicMock()
+        service.login.return_value = ("new-user", config.session_file)
+
+        with (
+            patch("igp_ride.cli.AppConfig.load", return_value=config),
+            patch("igp_ride.cli.RideSyncService", return_value=service) as service_cls,
+        ):
+            exit_code = cmd_login("new-user")
+
+        assert exit_code == 0
+        service_config = service_cls.call_args.args[0]
+        assert service_config.password == "env-secret"
+        service.login.assert_called_once_with(username="new-user", password=None)
+
     def test_logout_removes_credentials_with_yes(self, tmp_path: Path, capsys):
         from igp_ride.cli import cmd_logout
 

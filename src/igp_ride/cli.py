@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+from dataclasses import replace
 from datetime import date, datetime
 from getpass import getpass
 from importlib.metadata import PackageNotFoundError, version
@@ -287,10 +289,19 @@ def cmd_welcome() -> int:
 def cmd_login(username: str | None = None, password_stdin: bool = False) -> int:
     config = AppConfig.load()
     password = _read_secret_stdin("IGPSPORT password") if password_stdin else None
+    username_changed = bool(
+        username and config.username and username != config.username
+    )
+    if username_changed and password is None and not os.getenv("IGP_PASSWORD"):
+        config = replace(config, password="")
     if _input_disabled():
         if not username and not config.username:
             raise ConfigurationError(
                 "Missing username. Pass --username or set IGP_USERNAME."
+            )
+        if username_changed and not password and not os.getenv("IGP_PASSWORD"):
+            raise ConfigurationError(
+                "Missing password for new username. Pass --password-stdin or set IGP_PASSWORD."
             )
         if not password and not config.password:
             raise ConfigurationError(

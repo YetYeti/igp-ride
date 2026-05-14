@@ -603,6 +603,35 @@ class TestBuildActivity:
         assert activity.avg_power == 200
 
 
+class TestLogin:
+    def test_login_reuses_loaded_username_without_prompting(self, tmp_path: Path):
+        config = MagicMock()
+        config.db_path = tmp_path / "test.db"
+        config.fit_dir = tmp_path / "fit"
+        config.username = "stored-user"
+        config.password = "stored-password"
+        config.base_url = "https://example.com"
+        config.session_file = tmp_path / "session.json"
+
+        with (
+            patch("igp_ride.service.IGPSportClient") as MockClient,
+            patch("igp_ride.service.ActivityDatabase"),
+            patch("igp_ride.service.save_credentials") as mock_save_credentials,
+            patch("builtins.input") as mock_input,
+        ):
+            service = RideSyncService(config)
+            account, session_path = service.login()
+
+        assert account == "stored-user"
+        assert session_path == config.session_file
+        mock_input.assert_not_called()
+        mock_client = MockClient.return_value
+        assert mock_client.username == "stored-user"
+        assert mock_client.password == "stored-password"
+        mock_client.login.assert_called_once_with()
+        mock_save_credentials.assert_called_once_with("stored-user", "stored-password")
+
+
 class TestCredentialCleanup:
     def test_logout_deletes_credentials_and_session(self):
         config = MagicMock()
