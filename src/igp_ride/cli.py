@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Final, Sequence, TextIO
 
 import requests
+from wcwidth import wcswidth
 
 from igp_ride.client import AuthenticationError, DataSyncError
 from igp_ride.config import (
@@ -756,8 +757,10 @@ def cmd_list(
         _print_field("Since", since.isoformat())
     print()
     print(
-        f"{'RIDE_ID':<8}   {'DATE':<10}   {'DISTANCE':>8}   "
-        f"{'TIME':>6}   {'AVG_SPD':>9}   {'ELEV':>8}   {'AVG_PWR':>7}   TITLE"
+        f"{_display_ljust('RIDE_ID', 8)}   {_display_ljust('DATE', 10)}   "
+        f"{_display_rjust('DISTANCE', 8)}   {_display_rjust('TIME', 6)}   "
+        f"{_display_rjust('AVG_SPD', 9)}   {_display_rjust('ELEV', 8)}   "
+        f"{_display_rjust('AVG_PWR', 7)}   TITLE"
     )
     for activity in activities:
         start = _format_activity_date(activity.start_time)
@@ -769,9 +772,14 @@ def cmd_list(
         elevation = f"{activity.total_ascent:,} m"
         power = f"{activity.avg_power:.0f} W" if activity.avg_power > 0 else "-"
         print(
-            f"{activity.ride_id:<8}   {start:<10}   {distance:>8}   "
-            f"{_format_list_duration_display(activity.total_moving_time):>6}   "
-            f"{avg_speed:>9}   {elevation:>8}   {power:>7}   {title}"
+            f"{_display_ljust(str(activity.ride_id), 8)}   "
+            f"{_display_ljust(start, 10)}   "
+            f"{_display_rjust(distance, 8)}   "
+            f"{_display_rjust(_format_list_duration_display(activity.total_moving_time), 6)}   "
+            f"{_display_rjust(avg_speed, 9)}   "
+            f"{_display_rjust(elevation, 8)}   "
+            f"{_display_rjust(power, 7)}   "
+            f"{title}"
         )
     return 0
 
@@ -971,6 +979,21 @@ def format_path(path: Path) -> str:
     abs_path = path.resolve()
     if sys.platform == "win32":
         return str(abs_path)
+
+
+def _display_width(value: str) -> int:
+    width = wcswidth(value)
+    return width if width >= 0 else len(value)
+
+
+def _display_ljust(value: str, width: int) -> str:
+    padding = max(width - _display_width(value), 0)
+    return f"{value}{' ' * padding}"
+
+
+def _display_rjust(value: str, width: int) -> str:
+    padding = max(width - _display_width(value), 0)
+    return f"{' ' * padding}{value}"
     home = Path.home().resolve()
     try:
         return f"~/{abs_path.relative_to(home)}"

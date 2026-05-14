@@ -758,6 +758,13 @@ class TestListOutput:
         assert "570 m" in second_row
         assert first_row.index("215 W") == second_row.index("155 W")
 
+    def test_display_padding_uses_chinese_display_width(self):
+        from igp_ride.cli import _display_ljust, _display_rjust, _display_width
+
+        assert _display_width("户外") == 4
+        assert _display_width(_display_ljust("户外", 6)) == 6
+        assert _display_width(_display_rjust("户外", 6)) == 6
+
     def test_list_json_outputs_activities(self, tmp_path: Path, capsys):
         config = _make_config(tmp_path)
         service = MagicMock()
