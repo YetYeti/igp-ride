@@ -146,7 +146,7 @@ igp-ride reset
 igp-ride reset --yes
 ```
 
-删除本地 `igp-ride` 数据，包括 SQLite 数据库、已下载 FIT 文件、IGPSPORT 凭据和 session 数据。
+删除本地 `igp-ride` 数据，包括 SQLite 数据库、已下载 FIT 文件、IGPSPORT 凭据、session 数据和 Intervals.icu 配置。
 
 不加 `--yes` 时会要求确认，只有输入 `RESET` 才会继续执行。
 
