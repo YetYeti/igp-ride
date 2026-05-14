@@ -101,14 +101,14 @@ def save_credentials(username: str, password: str) -> None:
     path.chmod(0o600)
 
 
-def delete_credentials(username: str) -> None:
+def delete_credentials() -> None:
     try:
         get_default_credentials_file().unlink()
     except FileNotFoundError:
         pass
 
 
-def delete_session_data(username: str) -> None:
+def delete_session_data() -> None:
     try:
         get_default_session_file().unlink()
     except FileNotFoundError:

@@ -102,8 +102,8 @@ class RideSyncService:
         logger.info("Logging out")
 
         if self.client.username:
-            delete_credentials(self.client.username)
-            delete_session_data(self.client.username)
+            delete_credentials()
+            delete_session_data()
         if self.config.session_file.exists():
             self.config.session_file.unlink()
             logger.debug("Session removed: %s", self.config.session_file)
@@ -116,8 +116,8 @@ class RideSyncService:
         self.db.close()
         self.client.close()
         if self.client.username:
-            delete_credentials(self.client.username)
-            delete_session_data(self.client.username)
+            delete_credentials()
+            delete_session_data()
 
         # The app stores runtime state under XDG config/data roots.
         targets = [self.config.data_dir, self.config.session_file.parent]

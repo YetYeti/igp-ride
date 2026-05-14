@@ -139,7 +139,7 @@ class TestCredentialStorage:
         cred_file.write_text("{}", encoding="utf-8")
 
         with patch("igp_ride.config.get_default_credentials_file", return_value=cred_file):
-            delete_credentials("tester")
+            delete_credentials()
 
         assert not cred_file.exists()
 
@@ -147,7 +147,7 @@ class TestCredentialStorage:
         cred_file = tmp_path / "credentials.json"
 
         with patch("igp_ride.config.get_default_credentials_file", return_value=cred_file):
-            delete_credentials("tester")
+            delete_credentials()
 
 
 class TestIcuConfigStorage:

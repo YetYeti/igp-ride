@@ -597,8 +597,8 @@ class TestCredentialCleanup:
 
             service.logout()
 
-            mock_delete_credentials.assert_called_once_with("stored-user")
-            mock_delete_session_data.assert_called_once_with("stored-user")
+            mock_delete_credentials.assert_called_once_with()
+            mock_delete_session_data.assert_called_once_with()
 
     def test_reset_deletes_credentials_and_session(self, tmp_path: Path):
         data_dir = tmp_path / "data"
@@ -627,6 +627,6 @@ class TestCredentialCleanup:
 
             results = service.reset()
 
-            mock_delete_credentials.assert_called_once_with("stored-user")
-            mock_delete_session_data.assert_called_once_with("stored-user")
+            mock_delete_credentials.assert_called_once_with()
+            mock_delete_session_data.assert_called_once_with()
             assert {item.status for item in results} == {"deleted"}
