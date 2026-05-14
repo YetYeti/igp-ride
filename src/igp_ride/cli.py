@@ -58,7 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Fail instead of prompting for input.",
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="command")
 
     login_parser = subparsers.add_parser("login", help="Log in to cycling website")
     login_parser.add_argument(
@@ -168,6 +168,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     _reset_output_state(output_format=args.format, no_input=args.no_input)
+    if args.command is None:
+        return cmd_welcome()
 
     try:
         try:
@@ -225,6 +227,38 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     finally:
         _reset_output_state()
+
+
+def cmd_welcome() -> int:
+    if _json_output():
+        _print_json(
+            {
+                "command": "welcome",
+                "result": "success",
+                "next": [
+                    "igp-ride login --username USERNAME --password-stdin",
+                    "igp-ride update",
+                    "igp-ride list",
+                ],
+            }
+        )
+        return 0
+
+    _print_title("igp-ride")
+    print("Sync IGPSPORT rides to a local database and optional Intervals.icu upload.")
+    print()
+    print("Quick start:")
+    print("  igp-ride login --username USERNAME --password-stdin")
+    print("  igp-ride update")
+    print("  igp-ride list")
+    print()
+    print("Common commands:")
+    print("  igp-ride show last")
+    print("  igp-ride icu login --api-key-stdin")
+    print("  igp-ride icu sync --dry-run")
+    print()
+    print("Run igp-ride --help for all commands.")
+    return 0
 
 
 def cmd_login(username: str | None = None, password_stdin: bool = False) -> int:

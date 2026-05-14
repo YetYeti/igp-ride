@@ -128,6 +128,25 @@ class TestMainOutput:
         captured = capsys.readouterr()
         assert captured.out.strip() == "igp-ride 0.1.1"
 
+    def test_main_without_command_prints_quick_start(self, capsys):
+        exit_code = main([])
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        assert "== igp-ride ==" in captured.out
+        assert "Quick start:" in captured.out
+        assert "igp-ride update" in captured.out
+        assert captured.err == ""
+
+    def test_main_without_command_can_output_json(self, capsys):
+        exit_code = main(["--format", "json"])
+
+        captured = capsys.readouterr()
+        payload = json.loads(captured.out)
+        assert exit_code == 0
+        assert payload["command"] == "welcome"
+        assert payload["result"] == "success"
+
     def test_main_formats_configuration_error(self, capsys):
         with patch(
             "igp_ride.cli.cmd_update",
