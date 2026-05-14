@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from getpass import getpass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -139,6 +139,10 @@ def build_parser() -> argparse.ArgumentParser:
     list_parser = subparsers.add_parser("list", help="List local activities")
     list_parser.add_argument("--limit", type=int, help="Show at most N activities")
     list_parser.add_argument(
+        "--since",
+        help="Only show activities on or after DATE (YYYY-MM-DD).",
+    )
+    list_parser.add_argument(
         "--sort",
         choices=["date", "distance", "time", "speed", "elev", "power"],
         default="date",
@@ -187,6 +191,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return cmd_list(
                     args.limit,
                     args.sort,
+                    since=_parse_date_arg(args.since, "--since"),
                     descending=not args.asc,
                 )
             if args.command == "show":
@@ -598,6 +603,7 @@ def cmd_list(
     limit: int | None,
     sort_by: ActivitySortKey = "date",
     *,
+    since: date | None = None,
     descending: bool = True,
 ) -> int:
     config = AppConfig.load()
@@ -605,6 +611,7 @@ def cmd_list(
     try:
         activities = service.list_activities(
             limit=limit,
+            since=since,
             sort_by=sort_by,
             descending=descending,
         )
@@ -617,6 +624,7 @@ def cmd_list(
                 "command": "list",
                 "result": "success",
                 "limit": limit,
+                "since": since.isoformat() if since is not None else None,
                 "sort": sort_by,
                 "descending": descending,
                 "count": len(activities),
@@ -640,6 +648,8 @@ def cmd_list(
         _print_field("Limit", limit)
     else:
         _print_field("Count", len(activities))
+    if since is not None:
+        _print_field("Since", since.isoformat())
     print()
     print(
         f"{'RIDE_ID':<8}   {'DATE':<10}   {'DISTANCE':>8}   "
@@ -886,6 +896,15 @@ def _read_secret_stdin(label: str) -> str:
     if not value:
         raise ConfigurationError(f"{label} is required on stdin.")
     return value
+
+
+def _parse_date_arg(value: str | None, option: str) -> date | None:
+    if value is None:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{option} must be a date in YYYY-MM-DD format.") from exc
 
 
 def _print_json(payload: dict[str, object]) -> None:

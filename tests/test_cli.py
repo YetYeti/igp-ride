@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -528,7 +528,31 @@ class TestListOutput:
             exit_code = main(["list", "--sort", "distance", "--asc", "--limit", "5"])
 
         assert exit_code == 0
-        cmd_list_mock.assert_called_once_with(5, "distance", descending=False)
+        cmd_list_mock.assert_called_once_with(
+            5,
+            "distance",
+            since=None,
+            descending=False,
+        )
+
+    def test_main_passes_list_since_option(self):
+        with patch("igp_ride.cli.cmd_list", return_value=0) as cmd_list_mock:
+            exit_code = main(["list", "--since", "2026-03-01"])
+
+        assert exit_code == 0
+        cmd_list_mock.assert_called_once_with(
+            None,
+            "date",
+            since=date(2026, 3, 1),
+            descending=True,
+        )
+
+    def test_main_rejects_invalid_list_since(self, capsys):
+        exit_code = main(["list", "--since", "7d"])
+
+        captured = capsys.readouterr()
+        assert exit_code == 2
+        assert "Error: --since must be a date in YYYY-MM-DD format." in captured.err
 
     def test_empty_list_uses_count_and_tip(self, tmp_path: Path, capsys):
         config = _make_config(tmp_path)
@@ -592,15 +616,21 @@ class TestListOutput:
             patch("igp_ride.cli.AppConfig.load", return_value=config),
             patch("igp_ride.cli.RideSyncService", return_value=service),
         ):
-            exit_code = cmd_list(limit=20, sort_by="distance")
+            exit_code = cmd_list(
+                limit=20,
+                sort_by="distance",
+                since=date(2026, 3, 1),
+            )
 
         captured = capsys.readouterr()
         assert exit_code == 0
         assert "Limit: 20" in captured.out
+        assert "Since: 2026-03-01" in captured.out
         assert "Summary: shown=" not in captured.out
         assert "Count:" not in captured.out
         service.list_activities.assert_called_once_with(
             limit=20,
+            since=date(2026, 3, 1),
             sort_by="distance",
             descending=True,
         )
@@ -654,6 +684,7 @@ class TestListOutput:
         payload = json.loads(capsys.readouterr().out)
         assert exit_code == 0
         assert payload["command"] == "list"
+        assert payload["since"] is None
         assert payload["count"] == 1
         assert payload["activities"][0]["ride_id"] == 123456
         assert payload["activities"][0]["distance_m"] == 45200
