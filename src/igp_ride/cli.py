@@ -712,8 +712,10 @@ def cmd_show(activity_id: str) -> int:
     try:
         if activity_id == "last":
             activity = service.get_latest_activity()
-        else:
+        elif activity_id.isdecimal():
             activity = service.show_activity(int(activity_id))
+        else:
+            raise ValueError("Activity ID must be a number or 'last'.")
     finally:
         service.close()
 

@@ -739,6 +739,22 @@ class TestShowOutput:
         assert payload["activity"]["ride_id"] == 123456
         assert payload["activity"]["avg_heart_rate_bpm"] == 148
 
+    def test_show_rejects_non_numeric_id(self, tmp_path: Path, capsys):
+        config = _make_config(tmp_path)
+        service = MagicMock()
+
+        with (
+            patch("igp_ride.cli.AppConfig.load", return_value=config),
+            patch("igp_ride.cli.RideSyncService", return_value=service),
+        ):
+            exit_code = main(["show", "abc"])
+
+        captured = capsys.readouterr()
+        assert exit_code == 2
+        assert "Error: Activity ID must be a number or 'last'." in captured.err
+        service.show_activity.assert_not_called()
+        service.close.assert_called_once_with()
+
 
 class TestResetOutput:
     def test_reset_json_outputs_summary(self, tmp_path: Path, capsys):
