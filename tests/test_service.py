@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from igp_ride.service import (
+    IcuSyncProgress,
     IcuSyncSummary,
     RideSyncService,
     SyncProgress,
@@ -166,9 +167,14 @@ class TestIcuSync:
             mock_icu.upload_activity_file.return_value = "icu-1"
 
             service = RideSyncService(config)
-            summary = service.sync_icu()
+            progress: list[IcuSyncProgress] = []
+            summary = service.sync_icu(progress_callback=progress.append)
 
         assert summary == IcuSyncSummary(candidates=1, uploaded=1)
+        assert progress == [
+            IcuSyncProgress(done=0, total=1),
+            IcuSyncProgress(done=1, total=1, uploaded=1, current_ride_id=1),
+        ]
         mock_db.get_activities_pending_icu_sync.assert_called_once_with(
             since=None,
             include_failed=True,

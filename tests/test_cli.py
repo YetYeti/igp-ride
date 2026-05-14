@@ -11,7 +11,7 @@ import pytest
 from igp_ride.cli import cmd_icu_sync, cmd_list, cmd_show, cmd_update, main
 from igp_ride.config import AppConfig, ConfigurationError
 from igp_ride.models import Activity, SyncSummary
-from igp_ride.service import IcuSyncSummary, ResetResult, SyncProgress
+from igp_ride.service import IcuSyncProgress, IcuSyncSummary, ResetResult, SyncProgress
 
 
 def _make_config(tmp_path: Path) -> AppConfig:
@@ -439,11 +439,22 @@ class TestIcuOutput:
     def test_icu_sync_prints_summary(self, tmp_path: Path, capsys):
         config = _make_config(tmp_path)
         service = MagicMock()
-        service.sync_icu.return_value = IcuSyncSummary(
-            candidates=3,
-            uploaded=2,
-            already_remote=1,
-        )
+
+        def sync_icu(*, dry_run, progress_callback):
+            assert dry_run is False
+            assert progress_callback is not None
+            progress_callback(IcuSyncProgress(done=0, total=3))
+            progress_callback(IcuSyncProgress(done=1, total=3, uploaded=1))
+            progress_callback(
+                IcuSyncProgress(done=3, total=3, uploaded=2, already_remote=1)
+            )
+            return IcuSyncSummary(
+                candidates=3,
+                uploaded=2,
+                already_remote=1,
+            )
+
+        service.sync_icu.side_effect = sync_icu
 
         with (
             patch("igp_ride.cli.AppConfig.load", return_value=config),
@@ -459,9 +470,9 @@ class TestIcuOutput:
             "Summary: candidates=3 uploaded=2 already_remote=1 skipped=0 "
             "failed=0 dry_run=no"
         ) in captured.out
-        service.sync_icu.assert_called_once_with(
-            dry_run=False,
-        )
+        assert "Progress: done=0 total=3 percent=0" in captured.err
+        assert "Progress: done=1 total=3 percent=33" in captured.err
+        assert "Progress: done=3 total=3 percent=100" in captured.err
         assert service.close.called
 
     def test_icu_sync_dry_run_prints_next_command(self, tmp_path: Path, capsys):
@@ -484,6 +495,9 @@ class TestIcuOutput:
         assert "Mode: dry-run" in captured.out
         assert "dry_run=yes" in captured.out
         assert "Next: igp-ride icu sync" in captured.out
+        service.sync_icu.assert_called_once()
+        assert service.sync_icu.call_args.kwargs["dry_run"] is True
+        assert service.sync_icu.call_args.kwargs["progress_callback"] is not None
 
     def test_icu_status_json_without_key(self, tmp_path: Path, capsys):
         config = _make_config(tmp_path)
@@ -520,6 +534,8 @@ class TestIcuOutput:
         assert payload["command"] == "icu.sync"
         assert payload["mode"] == "dry-run"
         assert payload["summary"]["dry_run"] is True
+        assert captured.err == ""
+        assert service.sync_icu.call_args.kwargs["progress_callback"] is None
 
 
 class TestListOutput:

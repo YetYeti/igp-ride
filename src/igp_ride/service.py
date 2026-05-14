@@ -64,6 +64,17 @@ class IcuSyncSummary:
     dry_run: bool = False
 
 
+@dataclass(slots=True)
+class IcuSyncProgress:
+    done: int
+    total: int
+    uploaded: int = 0
+    already_remote: int = 0
+    skipped: int = 0
+    failed: int = 0
+    current_ride_id: int | None = None
+
+
 class RideSyncService:
     def __init__(self, config: AppConfig):
         self.config = config
@@ -399,6 +410,7 @@ class RideSyncService:
         since: date | None = None,
         include_failed: bool = True,
         dry_run: bool = False,
+        progress_callback: Callable[[IcuSyncProgress], None] | None = None,
     ) -> IcuSyncSummary:
         if not self.config.icu_api_key:
             raise ValueError(
@@ -413,6 +425,8 @@ class RideSyncService:
         summary = IcuSyncSummary(candidates=len(pending), dry_run=dry_run)
         if not pending:
             return summary
+        if progress_callback is not None:
+            progress_callback(IcuSyncProgress(done=0, total=len(pending)))
 
         icu_client = IntervalsIcuClient(
             api_key=self.config.icu_api_key,
@@ -422,7 +436,7 @@ class RideSyncService:
                 icu_client,
                 pending,
             )
-            for activity in pending:
+            for index, activity in enumerate(pending, start=1):
                 external_id = build_icu_external_id(activity.ride_id)
                 remote = remote_by_external_id.get(external_id)
                 if remote is not None:
@@ -434,6 +448,14 @@ class RideSyncService:
                             synced_at=datetime.now(UTC),
                         )
                     summary.already_remote += 1
+                    if progress_callback is not None:
+                        progress_callback(
+                            _icu_sync_progress_from_summary(
+                                summary,
+                                done=index,
+                                current_ride_id=activity.ride_id,
+                            )
+                        )
                     continue
 
                 fit_path = Path(activity.fit_file_path)
@@ -446,10 +468,26 @@ class RideSyncService:
                             error=message,
                         )
                     summary.failed += 1
+                    if progress_callback is not None:
+                        progress_callback(
+                            _icu_sync_progress_from_summary(
+                                summary,
+                                done=index,
+                                current_ride_id=activity.ride_id,
+                            )
+                        )
                     continue
 
                 if dry_run:
                     summary.skipped += 1
+                    if progress_callback is not None:
+                        progress_callback(
+                            _icu_sync_progress_from_summary(
+                                summary,
+                                done=index,
+                                current_ride_id=activity.ride_id,
+                            )
+                        )
                     continue
 
                 try:
@@ -466,6 +504,14 @@ class RideSyncService:
                         error=str(exc),
                     )
                     summary.failed += 1
+                    if progress_callback is not None:
+                        progress_callback(
+                            _icu_sync_progress_from_summary(
+                                summary,
+                                done=index,
+                                current_ride_id=activity.ride_id,
+                            )
+                        )
                     continue
 
                 self.db.mark_icu_synced(
@@ -475,6 +521,14 @@ class RideSyncService:
                     synced_at=datetime.now(UTC),
                 )
                 summary.uploaded += 1
+                if progress_callback is not None:
+                    progress_callback(
+                        _icu_sync_progress_from_summary(
+                            summary,
+                            done=index,
+                            current_ride_id=activity.ride_id,
+                        )
+                    )
         finally:
             icu_client.close()
 
@@ -759,6 +813,23 @@ def _existing_fit_file_header_is_valid(path: Path) -> bool:
 
 def build_icu_external_id(ride_id: int) -> str:
     return f"igp-{ride_id}"
+
+
+def _icu_sync_progress_from_summary(
+    summary: IcuSyncSummary,
+    *,
+    done: int,
+    current_ride_id: int,
+) -> IcuSyncProgress:
+    return IcuSyncProgress(
+        done=done,
+        total=summary.candidates,
+        uploaded=summary.uploaded,
+        already_remote=summary.already_remote,
+        skipped=summary.skipped,
+        failed=summary.failed,
+        current_ride_id=current_ride_id,
+    )
 
 
 def _oldest_activity_date(activities: list[Activity]) -> str | None:

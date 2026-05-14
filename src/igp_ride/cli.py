@@ -21,7 +21,13 @@ from igp_ride.config import (
 from igp_ride.database import ActivitySortKey, DatabaseError
 from igp_ride.icu_client import ICUClientError, IntervalsIcuClient
 from igp_ride.models import Activity, SyncSummary
-from igp_ride.service import IcuSyncSummary, ResetResult, RideSyncService, SyncProgress
+from igp_ride.service import (
+    IcuSyncProgress,
+    IcuSyncSummary,
+    ResetResult,
+    RideSyncService,
+    SyncProgress,
+)
 from igp_ride.utils import setup_logging
 
 
@@ -571,12 +577,46 @@ def cmd_icu_status() -> int:
 def cmd_icu_sync(dry_run: bool) -> int:
     config = AppConfig.load()
     service = RideSyncService(config)
+    tty_progress = sys.stderr.isatty() and not _json_output()
+    last_plain_percent = -1
+
+    def render_progress(p: IcuSyncProgress) -> None:
+        nonlocal last_plain_percent
+        if p.total <= 0:
+            return
+        percent = int((p.done / p.total) * 100)
+        if tty_progress:
+            print(
+                "\r\033[2K"
+                f"Progress: done={p.done} total={p.total} percent={percent}"
+                f" | uploaded {p.uploaded}"
+                f" | remote {p.already_remote}"
+                f" | skipped {p.skipped}"
+                f" | failed {p.failed} ",
+                end="",
+                file=sys.stderr,
+                flush=True,
+            )
+            return
+
+        if percent < 100 and percent // 10 == last_plain_percent // 10:
+            return
+        last_plain_percent = percent
+        print(
+            f"Progress: done={p.done} total={p.total} percent={percent}",
+            file=sys.stderr,
+        )
+
     try:
         summary = service.sync_icu(
             dry_run=dry_run,
+            progress_callback=None if _json_output() else render_progress,
         )
     finally:
         service.close()
+
+    if tty_progress and summary.candidates > 0:
+        print(file=sys.stderr)
 
     if _json_output():
         _print_json(
