@@ -41,7 +41,7 @@ class TestSessionPersistence:
         client._session.cookies.set("sessionid", "abc")
         client._session.headers.update({"Authorization": "Bearer token"})
 
-        client._save_session()
+        client.save_session()
 
         payload = json.loads(session_path.read_text(encoding="utf-8"))
         assert payload["username"] == "tester"
@@ -298,7 +298,7 @@ class TestActivityPage:
 
 
 class TestDownloadFitFile:
-    def test_download_fit_file_uses_clean_request_for_signed_url(self, tmp_path: Path):
+    def test_download_fit_file_uses_session_get_for_signed_url(self, tmp_path: Path):
         save_path = tmp_path / "123.fit"
         client = IGPSportClient(
             username="tester",
@@ -318,18 +318,17 @@ class TestDownloadFitFile:
         fit_response.raise_for_status.return_value = None
         fit_response.content = b"\x0e\x10\x00\x00\x00\x00\x00\x00.FITdata"
 
-        with (
-            patch.object(
-                client._session, "get", return_value=download_url_response
-            ) as authenticated_get,
-            patch(
-                "igp_ride.client.requests.get", return_value=fit_response
-            ) as clean_get,
-        ):
+        with patch.object(
+            client._session, "get", side_effect=[download_url_response, fit_response]
+        ) as session_get:
             client.download_fit_file(123, save_path)
 
-        authenticated_get.assert_called_once()
-        clean_get.assert_called_once_with("https://cdn.example.com/123.fit", timeout=60)
+        assert session_get.call_count == 2
+        args0, _ = session_get.call_args_list[0]
+        assert "getDownloadUrl" in args0[0]
+        args1, kwargs1 = session_get.call_args_list[1]
+        assert args1[0] == "https://cdn.example.com/123.fit"
+        assert kwargs1["timeout"] == 60
         assert save_path.read_bytes() == fit_response.content
         client.close()
 
@@ -349,13 +348,14 @@ class TestDownloadFitFile:
         }
 
         with (
-            patch.object(client._session, "get", return_value=download_url_response),
-            patch("igp_ride.client.requests.get") as clean_get,
+            patch.object(
+                client._session, "get", return_value=download_url_response
+            ) as session_get,
             pytest.raises(DataSyncError),
         ):
             client.download_fit_file(123, tmp_path / "123.fit")
 
-        clean_get.assert_not_called()
+        session_get.assert_called_once()
         client.close()
 
     def test_download_fit_file_rejects_non_fit_content(self, tmp_path: Path):
@@ -377,8 +377,9 @@ class TestDownloadFitFile:
         fit_response.content = b"<html>expired</html>"
 
         with (
-            patch.object(client._session, "get", return_value=download_url_response),
-            patch("igp_ride.client.requests.get", return_value=fit_response),
+            patch.object(
+                client._session, "get", side_effect=[download_url_response, fit_response]
+            ),
             pytest.raises(DataSyncError),
         ):
             client.download_fit_file(123, tmp_path / "123.fit")

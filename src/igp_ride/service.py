@@ -7,6 +7,8 @@ from getpass import getpass
 from pathlib import Path
 from typing import Any, Callable
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from igp_ride.client import DataSyncError, IGPSportClient, _looks_like_fit_file
 from igp_ride.config import (
     AppConfig,
@@ -89,6 +91,17 @@ class RideSyncService:
     def close(self) -> None:
         self.client.close()
         self.db.close()
+
+    @staticmethod
+    def _download_fit_safe(
+        client: IGPSportClient, ride_id: int, fit_path: Path
+    ) -> bool:
+        """Download a single FIT file, returning True on success."""
+        try:
+            client.download_fit_file(ride_id, fit_path)
+            return True
+        except DataSyncError:
+            return False
 
     def login(
         self,
@@ -232,6 +245,38 @@ class RideSyncService:
             len(all_remote),
         )
 
+        # --- Phase 1: collect activities needing FIT download ---
+        download_queue: list[tuple[int, Path]] = []
+        for raw_activity in all_remote:
+            ride_id = _as_int(raw_activity.get("RideId"))
+            if ride_id > 0:
+                fit_path = self.config.fit_dir / f"{ride_id}.fit"
+                if not fit_path.exists():
+                    download_queue.append((ride_id, fit_path))
+
+        # --- Phase 2: parallel FIT download ---
+        downloaded_ok: set[int] = set()
+        if download_queue:
+            logger.info(
+                "Downloading %d FIT files (max 4 concurrent)...", len(download_queue)
+            )
+            client_copy = self.client
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                fut_to_ride = {
+                    executor.submit(
+                        self._download_fit_safe, client_copy, ride_id, fp
+                    ): ride_id
+                    for ride_id, fp in download_queue
+                }
+                for future in as_completed(fut_to_ride):
+                    ride_id = fut_to_ride[future]
+                    try:
+                        if future.result():
+                            downloaded_ok.add(ride_id)
+                    except Exception:
+                        pass
+
+        # --- Phase 3: sequential processing (DB writes stay single-threaded) ---
         for index, raw_activity in enumerate(all_remote, start=1):
             ride_id = _as_int(raw_activity.get("RideId"))
             try:
@@ -248,16 +293,14 @@ class RideSyncService:
                     summary.activities_skipped += 1
                     continue
 
-                fit_status = "downloaded"
-                if needs_fit_download:
-                    try:
-                        self.client.download_fit_file(ride_id, fit_path)
-                    except DataSyncError as e:
-                        logger.warning(
-                            "Failed to download FIT for ride %d: %s", ride_id, e
-                        )
-                        fit_status = "missing"
-                        summary.fit_files_failed += 1
+                if needs_fit_download and ride_id not in downloaded_ok:
+                    fit_status = "missing"
+                    summary.fit_files_failed += 1
+                    logger.warning(
+                        "Failed to download FIT for ride %d", ride_id
+                    )
+                else:
+                    fit_status = "downloaded"
 
                 activity = self._build_activity(raw_activity, fit_path, fit_status)
                 self.db.upsert(activity)

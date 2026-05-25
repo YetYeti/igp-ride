@@ -182,7 +182,7 @@ class IGPSportClient:
         if not isinstance(fit_url, str) or not fit_url.startswith("https://"):
             raise DataSyncError(f"FIT download URL not available for ride {ride_id}.")
 
-        file_response = requests.get(fit_url, timeout=60)
+        file_response = self._session.get(fit_url, timeout=60)
         file_response.raise_for_status()
         content = file_response.content
         if not _looks_like_fit_file(content):
@@ -284,9 +284,6 @@ class IGPSportClient:
             encoding="utf-8",
         )
         self.session_path.chmod(0o600)
-
-    def _save_session(self) -> None:
-        self.save_session()
 
     def _session_is_stale(self) -> bool:
         if not self._authenticated:
