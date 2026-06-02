@@ -867,6 +867,7 @@ def cmd_reset(yes: bool) -> int:
 def cmd_show(activity_id: str) -> int:
     config = AppConfig.load()
     service = RideSyncService(config)
+    note_record: ActivityNote | None = None
     try:
         if activity_id == "last":
             activity = service.get_latest_activity()
@@ -874,6 +875,8 @@ def cmd_show(activity_id: str) -> int:
             activity = service.show_activity(int(activity_id))
         else:
             raise ValueError("Activity ID must be a number or 'last'.")
+        if activity is not None:
+            note_record = service.get_activity_note(activity.ride_id)
     finally:
         service.close()
 
@@ -914,13 +917,13 @@ def cmd_show(activity_id: str) -> int:
             {
                 "command": "show",
                 "result": "success",
-                "activity": _activity_detail_payload(activity),
+                "activity": _activity_detail_payload(activity, note_record),
             }
         )
         return 0
 
     _print_title("Activity Details")
-    print_activity(activity)
+    print_activity(activity, note_record)
     return 0
 
 
@@ -1060,7 +1063,7 @@ def print_reset_summary(results: list[ResetResult]) -> None:
     )
 
 
-def print_activity(activity: Activity) -> None:
+def print_activity(activity: Activity, note: ActivityNote | None = None) -> None:
     _print_field("ID", activity.ride_id)
     _print_field("Title", format_activity_name(activity.title))
     _print_field("Start Time", _format_activity_timestamp(activity.start_time))
@@ -1123,6 +1126,8 @@ def print_activity(activity: Activity) -> None:
         )
     if activity.total_calories > 0:
         _print_field("Calories", f"{activity.total_calories:,} kcal")
+    if note is not None:
+        _print_field("Note", note.note)
 
 
 def format_activity_name(title: str) -> str:
@@ -1450,7 +1455,10 @@ def _activity_list_payload(activity: Activity) -> dict[str, object]:
     }
 
 
-def _activity_detail_payload(activity: Activity) -> dict[str, object]:
+def _activity_detail_payload(
+    activity: Activity,
+    note: ActivityNote | None = None,
+) -> dict[str, object]:
     payload = _activity_list_payload(activity)
     payload.update(
         {
@@ -1474,6 +1482,7 @@ def _activity_detail_payload(activity: Activity) -> dict[str, object]:
             "icu_external_id": activity.icu_external_id,
             "icu_sync_status": activity.icu_sync_status,
             "icu_sync_error": activity.icu_sync_error,
+            "note": note.note if note is not None else None,
         }
     )
     return payload

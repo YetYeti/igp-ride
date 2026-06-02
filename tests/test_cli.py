@@ -865,8 +865,15 @@ class TestShowOutput:
     def test_show_last_uses_structured_fields(self, tmp_path: Path, capsys):
         config = _make_config(tmp_path)
         activity = _make_activity()
+        note = ActivityNote(
+            ride_id=activity.ride_id,
+            note="今天腿感不错",
+            note_hash="hash-1",
+            icu_note_sync_status="pending",
+        )
         service = MagicMock()
         service.get_latest_activity.return_value = activity
+        service.get_activity_note.return_value = note
 
         with (
             patch("igp_ride.cli.AppConfig.load", return_value=config),
@@ -891,12 +898,21 @@ class TestShowOutput:
         assert "Cadence: 86 rpm | max 112 rpm" in captured.out
         assert "Speed: 29.4 km/h | max 51.2 km/h" in captured.out
         assert "Calories: 1,024 kcal" in captured.out
+        assert "Note: 今天腿感不错" in captured.out
+        assert "ICU Note Status" not in captured.out
 
     def test_show_json_outputs_activity(self, tmp_path: Path, capsys):
         config = _make_config(tmp_path)
         activity = _make_activity()
+        note = ActivityNote(
+            ride_id=activity.ride_id,
+            note="今天腿感不错",
+            note_hash="hash-1",
+            icu_note_sync_status="pending",
+        )
         service = MagicMock()
         service.get_latest_activity.return_value = activity
+        service.get_activity_note.return_value = note
 
         with (
             patch("igp_ride.cli.AppConfig.load", return_value=config),
@@ -909,6 +925,8 @@ class TestShowOutput:
         assert payload["command"] == "show"
         assert payload["activity"]["ride_id"] == 123456
         assert payload["activity"]["avg_heart_rate_bpm"] == 148
+        assert payload["activity"]["note"] == "今天腿感不错"
+        assert "icu_note_sync_status" not in payload["activity"]
 
     def test_show_rejects_non_numeric_id(self, tmp_path: Path, capsys):
         config = _make_config(tmp_path)

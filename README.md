@@ -214,7 +214,7 @@ igp-ride show last
 igp-ride show 123456
 ```
 
-显示一条本地活动的详情。使用 `last` 查看最新活动，也可以传入纯数字 ride ID。
+显示一条本地活动的详情。使用 `last` 查看最新活动，也可以传入纯数字 ride ID。如果该活动有本地备注，详情中会显示 `Note`。
 
 该命令不会连接 IGPSPORT。
 
