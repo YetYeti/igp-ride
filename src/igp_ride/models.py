@@ -50,3 +50,17 @@ class SyncSummary:
     updated_activities: int = 0
     activities_skipped: int = 0
     fit_files_failed: int = 0
+
+
+@dataclass(slots=True)
+class ActivityNote:
+    ride_id: int
+    note: str
+    note_hash: str
+    note_updated_at: datetime | None = None
+    icu_note_synced_hash: str = ""
+    icu_note_synced_at: datetime | None = None
+    icu_note_sync_status: str = "pending"
+    icu_note_sync_error: str = ""
+    created_at: datetime | None = None
+    updated_at: datetime | None = None

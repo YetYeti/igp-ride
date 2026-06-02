@@ -108,6 +108,14 @@ class IntervalsIcuClient:
             raise ICUClientError("Intervals.icu upload response did not include an id.")
         return activity_id
 
+    def add_activity_message(self, activity_id: str, content: str) -> None:
+        response = self._session.post(
+            f"{INTERVALS_ICU_API_BASE_URL}/activity/{activity_id}/messages",
+            json={"message": content},
+            timeout=self.timeout,
+        )
+        _raise_for_status(response)
+
     def _create_session(self) -> requests.Session:
         session = requests.Session()
         retry_strategy = Retry(
@@ -123,6 +131,14 @@ class IntervalsIcuClient:
 
 
 def _decode_json_response(response: requests.Response) -> object:
+    _raise_for_status(response)
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise ICUClientError("Intervals.icu returned invalid JSON.") from exc
+
+
+def _raise_for_status(response: requests.Response) -> None:
     try:
         response.raise_for_status()
     except requests.HTTPError as exc:
@@ -132,10 +148,6 @@ def _decode_json_response(response: requests.Response) -> object:
         raise ICUClientError(
             f"Intervals.icu request failed with HTTP {status}."
         ) from exc
-    try:
-        return response.json()
-    except ValueError as exc:
-        raise ICUClientError("Intervals.icu returned invalid JSON.") from exc
 
 
 def _parse_activity_summary(payload: dict[str, Any]) -> ICUActivitySummary:

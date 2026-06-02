@@ -378,7 +378,9 @@ class TestDownloadFitFile:
 
         with (
             patch.object(
-                client._session, "get", side_effect=[download_url_response, fit_response]
+                client._session,
+                "get",
+                side_effect=[download_url_response, fit_response],
             ),
             pytest.raises(DataSyncError),
         ):

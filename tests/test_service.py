@@ -18,7 +18,7 @@ from igp_ride.service import (
     _calculate_fetch_limits,
     build_icu_external_id,
 )
-from igp_ride.models import Activity
+from igp_ride.models import Activity, ActivityNote
 from igp_ride.parser import FitParseError
 
 
@@ -130,6 +130,14 @@ def _activity(ride_id: int, fit_path: Path, **overrides) -> Activity:
     return Activity(**defaults)
 
 
+def _activity_note(ride_id: int, note: str = "Legs felt good.") -> ActivityNote:
+    return ActivityNote(
+        ride_id=ride_id,
+        note=note,
+        note_hash=f"hash-{ride_id}",
+    )
+
+
 class TestIcuSync:
     def test_build_icu_external_id(self):
         assert build_icu_external_id(123) == "igp-123"
@@ -221,6 +229,82 @@ class TestIcuSync:
         assert summary.uploaded == 0
         mock_icu.upload_activity_file.assert_not_called()
         mock_db.mark_icu_synced.assert_called_once()
+
+    def test_icu_sync_adds_note_to_existing_synced_activity(self, tmp_path: Path):
+        config = _icu_config(tmp_path)
+        fit_path = tmp_path / "fit" / "1.fit"
+        activity = _activity(
+            1,
+            fit_path,
+            icu_activity_id="icu-1",
+            icu_external_id="igp-1",
+            icu_sync_status="synced",
+        )
+        note = _activity_note(1)
+
+        with (
+            patch("igp_ride.service.IGPSportClient"),
+            patch("igp_ride.service.ActivityDatabase") as MockDB,
+            patch("igp_ride.service.IntervalsIcuClient") as MockIcuClient,
+        ):
+            mock_db = MockDB.return_value
+            mock_db.get_activities_pending_icu_sync.return_value = []
+            mock_db.get_activities_pending_icu_note_sync.return_value = [activity]
+            mock_db.get_activity_note.return_value = note
+            mock_icu = MockIcuClient.return_value
+            mock_icu.list_activities.return_value = []
+
+            service = RideSyncService(config)
+            summary = service.sync_icu()
+
+        assert summary.candidates == 1
+        assert summary.uploaded == 0
+        assert summary.notes_synced == 1
+        mock_icu.upload_activity_file.assert_not_called()
+        mock_icu.add_activity_message.assert_called_once_with(
+            "icu-1",
+            "Legs felt good.",
+        )
+        mock_db.mark_activity_note_icu_synced.assert_called_once_with(
+            1,
+            note_hash="hash-1",
+            synced_at=mock_db.mark_activity_note_icu_synced.call_args.kwargs[
+                "synced_at"
+            ],
+        )
+
+    def test_icu_sync_uploads_activity_then_adds_note(self, tmp_path: Path):
+        config = _icu_config(tmp_path)
+        fit_path = tmp_path / "fit" / "1.fit"
+        fit_path.parent.mkdir()
+        fit_path.write_bytes(b"fit-data")
+        activity = _activity(1, fit_path)
+        note = _activity_note(1)
+
+        with (
+            patch("igp_ride.service.IGPSportClient"),
+            patch("igp_ride.service.ActivityDatabase") as MockDB,
+            patch("igp_ride.service.IntervalsIcuClient") as MockIcuClient,
+        ):
+            mock_db = MockDB.return_value
+            mock_db.get_activities_pending_icu_sync.return_value = [activity]
+            mock_db.get_activities_pending_icu_note_sync.return_value = [activity]
+            mock_db.get_activity_note.return_value = note
+            mock_icu = MockIcuClient.return_value
+            mock_icu.list_activities.return_value = []
+            mock_icu.upload_activity_file.return_value = "icu-1"
+
+            service = RideSyncService(config)
+            summary = service.sync_icu()
+
+        assert summary.candidates == 1
+        assert summary.uploaded == 1
+        assert summary.notes_synced == 1
+        mock_icu.upload_activity_file.assert_called_once()
+        mock_icu.add_activity_message.assert_called_once_with(
+            "icu-1",
+            "Legs felt good.",
+        )
 
     def test_icu_sync_force_checks_all_downloaded_fit(self, tmp_path: Path):
         config = _icu_config(tmp_path)

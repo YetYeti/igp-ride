@@ -10,7 +10,7 @@ import pytest
 
 from igp_ride.cli import cmd_icu_sync, cmd_list, cmd_show, cmd_update, main
 from igp_ride.config import AppConfig, ConfigurationError
-from igp_ride.models import Activity, SyncSummary
+from igp_ride.models import Activity, ActivityNote, SyncSummary
 from igp_ride.service import IcuSyncProgress, IcuSyncSummary, ResetResult, SyncProgress
 
 
@@ -614,7 +614,7 @@ class TestIcuOutput:
         assert "Force: no" in captured.out
         assert (
             "Summary: candidates=3 uploaded=2 already_remote=1 skipped=0 "
-            "failed=0 dry_run=no"
+            "failed=0 notes_synced=0 notes_failed=0 dry_run=no"
         ) in captured.out
         assert "Progress: done=0 total=3 percent=0" in captured.err
         assert "Progress: done=1 total=3 percent=33" in captured.err
@@ -925,6 +925,79 @@ class TestShowOutput:
         assert "Error: Activity ID must be a number or 'last'." in captured.err
         service.show_activity.assert_not_called()
         service.close.assert_called_once_with()
+
+
+class TestNoteOutput:
+    def test_note_set_reads_stdin_and_prints_next_command(self, tmp_path: Path, capsys):
+        config = _make_config(tmp_path)
+        activity = _make_activity()
+        note = ActivityNote(
+            ride_id=activity.ride_id,
+            note="Legs felt good.",
+            note_hash="hash-1",
+        )
+        service = MagicMock()
+        service.get_latest_activity.return_value = activity
+        service.set_activity_note.return_value = note
+
+        with (
+            patch("igp_ride.cli.AppConfig.load", return_value=config),
+            patch("igp_ride.cli.RideSyncService", return_value=service),
+            patch("sys.stdin", StringIO("Legs felt good.\n")),
+        ):
+            exit_code = main(["note", "set", "last", "--stdin"])
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        assert "== Activity Note ==" in captured.out
+        assert "ID: 123456" in captured.out
+        assert "ICU Note Status: pending" in captured.out
+        assert "Next: igp-ride icu sync" in captured.out
+        service.set_activity_note.assert_called_once_with(123456, "Legs felt good.")
+
+    def test_note_show_json_outputs_note(self, tmp_path: Path, capsys):
+        config = _make_config(tmp_path)
+        activity = _make_activity()
+        note = ActivityNote(
+            ride_id=activity.ride_id,
+            note="Legs felt good.",
+            note_hash="hash-1",
+            icu_note_sync_status="synced",
+        )
+        service = MagicMock()
+        service.show_activity.return_value = activity
+        service.get_activity_note.return_value = note
+
+        with (
+            patch("igp_ride.cli.AppConfig.load", return_value=config),
+            patch("igp_ride.cli.RideSyncService", return_value=service),
+        ):
+            exit_code = main(["--format", "json", "note", "show", "123456"])
+
+        payload = json.loads(capsys.readouterr().out)
+        assert exit_code == 0
+        assert payload["command"] == "note.show"
+        assert payload["has_note"] is True
+        assert payload["note"]["note"] == "Legs felt good."
+        assert payload["note"]["icu_note_sync_status"] == "synced"
+
+    def test_note_clear_outputs_cleared_state(self, tmp_path: Path, capsys):
+        config = _make_config(tmp_path)
+        activity = _make_activity()
+        service = MagicMock()
+        service.show_activity.return_value = activity
+        service.clear_activity_note.return_value = True
+
+        with (
+            patch("igp_ride.cli.AppConfig.load", return_value=config),
+            patch("igp_ride.cli.RideSyncService", return_value=service),
+        ):
+            exit_code = main(["note", "clear", "123456"])
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        assert "Cleared: yes" in captured.out
+        service.clear_activity_note.assert_called_once_with(123456)
 
 
 class TestResetOutput:

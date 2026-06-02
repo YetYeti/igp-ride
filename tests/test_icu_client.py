@@ -110,6 +110,20 @@ class TestIntervalsIcuClient:
         assert activity_id == "i999"
         client.close()
 
+    def test_add_activity_message_posts_json(self):
+        client = IntervalsIcuClient(api_key="secret")
+        response = _response({}, status_code=204)
+
+        with patch.object(client._session, "post", return_value=response) as post:
+            client.add_activity_message("i999", "Legs felt good.")
+
+        post.assert_called_once_with(
+            f"{INTERVALS_ICU_API_BASE_URL}/activity/i999/messages",
+            json={"message": "Legs felt good."},
+            timeout=30,
+        )
+        client.close()
+
     def test_raises_clear_error_for_unauthorized_response(self):
         client = IntervalsIcuClient(api_key="bad")
 

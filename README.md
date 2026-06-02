@@ -218,6 +218,31 @@ igp-ride show 123456
 
 该命令不会连接 IGPSPORT。
 
+### `note`
+
+```bash
+igp-ride note set last --text "今天腿感不错"
+igp-ride note set 123456 --stdin
+igp-ride note show last
+igp-ride note clear 123456
+```
+
+管理本地活动备注。每条活动保留一条备注，`note set` 会覆盖已有备注。使用 `last` 表示最新活动，也可以传入纯数字 ride ID。
+
+该命令只修改本地 SQLite 数据库，不会连接 IGPSPORT 或 Intervals.icu。备注会在下一次 `igp-ride icu sync` 时同步到 Intervals.icu 活动评论中。
+
+参数：
+
+- `--text TEXT`：直接传入备注文本。
+- `--stdin`：从标准输入读取备注文本，适合自动化和 agent 调用。
+
+非交互示例：
+
+```bash
+printf '%s' "今天腿感不错，后半程风大" | igp-ride note set last --stdin
+igp-ride icu sync
+```
+
 ## Intervals.icu
 
 ### `icu login`
@@ -272,9 +297,11 @@ igp-ride icu sync
 igp-ride icu sync --force
 ```
 
-将本地已下载的 FIT 文件上传到 Intervals.icu。
+将本地已下载的 FIT 文件上传到 Intervals.icu，并同步待同步的本地活动备注。
 
 同步时使用 `external_id=igp-<ride_id>`，因此重复执行时可以识别远端已存在的活动。之前同步失败的活动会在下一次 `igp-ride icu sync` 中自动重试。
+
+如果活动已经同步到 Intervals.icu，之后新增或修改本地备注，再执行 `igp-ride icu sync` 也会把备注追加到对应的 Intervals.icu 活动评论中。每条活动本地只保留一条备注；修改备注后会在下次同步时追加一条新的远端评论，不会删除或编辑旧评论。
 
 参数：
 

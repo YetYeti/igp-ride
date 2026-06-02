@@ -303,6 +303,48 @@ igp-ride show 123456
 
 如果活动不存在，程序会返回退出码 `8`。
 
+## 活动备注
+
+### 设置活动备注
+
+```bash
+igp-ride note set last --text "今天腿感不错"
+printf '%s' "今天腿感不错，后半程风大" | igp-ride note set 123456 --stdin
+```
+
+说明：
+
+* 每条活动本地只保留一条备注；
+* `note set` 会覆盖本地已有备注；
+* `last` 表示最新活动；
+* 数字参数表示 IGPSPORT ride ID；
+* 该命令只写本地 SQLite 数据库，不连接 IGPSPORT 或 Intervals.icu；
+* 备注会在下一次 `igp-ride icu sync` 时同步到 Intervals.icu 活动评论中。
+
+自动化或 agent 调用时优先使用：
+
+```bash
+printf '%s' "$NOTE_TEXT" | igp-ride note set last --stdin
+```
+
+### 查看活动备注
+
+```bash
+igp-ride note show last
+igp-ride note show 123456
+```
+
+### 清除本地活动备注
+
+```bash
+igp-ride note clear 123456
+```
+
+说明：
+
+* `note clear` 只删除本地备注；
+* 不会删除或编辑 Intervals.icu 上已经追加过的活动评论。
+
 ## Intervals.icu 相关命令
 
 ### 登录 Intervals.icu
@@ -401,9 +443,12 @@ igp-ride icu sync
 同步规则：
 
 * 上传本地已下载的 FIT 文件；
+* 同步待同步的本地活动备注；
 * 使用 `external_id=igp-<ride_id>`；
 * 重复执行时可以识别远端已存在的活动；
-* 之前同步失败的活动会在下一次同步时自动重试。
+* 之前同步失败的活动和备注会在下一次同步时自动重试；
+* 如果活动已经同步到 Intervals.icu，之后新增或修改本地备注，再执行 `igp-ride icu sync` 也会把备注追加到对应的 Intervals.icu 活动评论中；
+* 修改本地备注后会在下次同步时追加一条新的远端评论，不会删除或编辑旧评论。
 
 ## 配置与数据目录
 
@@ -541,6 +586,21 @@ igp-ride update --all
 igp-ride icu login
 igp-ride icu status
 igp-ride icu sync --dry-run
+igp-ride icu sync
+```
+
+如果用户还想给最新活动追加训练备注，推荐在 `icu sync` 前设置本地备注：
+
+```bash
+igp-ride update
+printf '%s' "$NOTE_TEXT" | igp-ride note set last --stdin
+igp-ride icu sync
+```
+
+如果活动早已同步到 Intervals.icu，也可以之后补备注：
+
+```bash
+printf '%s' "$NOTE_TEXT" | igp-ride note set 123456 --stdin
 igp-ride icu sync
 ```
 

@@ -19,7 +19,7 @@ from igp_ride.config import (
 
 from igp_ride.database import ActivityDatabase, ActivitySortKey
 from igp_ride.icu_client import ICUClientError, IntervalsIcuClient
-from igp_ride.models import Activity, SyncSummary
+from igp_ride.models import Activity, ActivityNote, SyncSummary
 from igp_ride.parser import FitParseError, normalize_session_data, parse_fit_file
 from igp_ride.utils import get_logger
 
@@ -63,6 +63,8 @@ class IcuSyncSummary:
     already_remote: int = 0
     skipped: int = 0
     failed: int = 0
+    notes_synced: int = 0
+    notes_failed: int = 0
     dry_run: bool = False
 
 
@@ -74,6 +76,8 @@ class IcuSyncProgress:
     already_remote: int = 0
     skipped: int = 0
     failed: int = 0
+    notes_synced: int = 0
+    notes_failed: int = 0
     current_ride_id: int | None = None
 
 
@@ -296,9 +300,7 @@ class RideSyncService:
                 if needs_fit_download and ride_id not in downloaded_ok:
                     fit_status = "missing"
                     summary.fit_files_failed += 1
-                    logger.warning(
-                        "Failed to download FIT for ride %d", ride_id
-                    )
+                    logger.warning("Failed to download FIT for ride %d", ride_id)
                 else:
                     fit_status = "downloaded"
 
@@ -483,11 +485,32 @@ class RideSyncService:
                 "or INTERVALS_ICU_API_KEY."
             )
 
-        pending = self.db.get_activities_pending_icu_sync(
-            since=since,
-            include_failed=include_failed,
-            force=force,
+        pending_uploads = list(
+            self.db.get_activities_pending_icu_sync(
+                since=since,
+                include_failed=include_failed,
+                force=force,
+            )
         )
+        pending_notes = list(
+            self.db.get_activities_pending_icu_note_sync(
+                since=since,
+                include_failed=include_failed,
+            )
+        )
+        pending_by_ride_id = {
+            activity.ride_id: activity for activity in pending_uploads + pending_notes
+        }
+        pending = sorted(
+            pending_by_ride_id.values(),
+            key=lambda activity: (
+                activity.start_time or datetime.min,
+                activity.ride_id,
+            ),
+        )
+        pending_upload_ids = {activity.ride_id for activity in pending_uploads}
+        pending_note_ids = {activity.ride_id for activity in pending_notes}
+
         summary = IcuSyncSummary(candidates=len(pending), dry_run=dry_run)
         if not pending:
             return summary
@@ -504,89 +527,109 @@ class RideSyncService:
             )
             for index, activity in enumerate(pending, start=1):
                 external_id = build_icu_external_id(activity.ride_id)
+                needs_upload = activity.ride_id in pending_upload_ids
+                needs_note = activity.ride_id in pending_note_ids
                 remote = remote_by_external_id.get(external_id)
-                if remote is not None:
-                    if not dry_run:
-                        self.db.mark_icu_synced(
-                            activity.ride_id,
-                            icu_activity_id=remote.id,
-                            icu_external_id=external_id,
-                            synced_at=datetime.now(UTC),
-                        )
-                    summary.already_remote += 1
-                    if progress_callback is not None:
-                        progress_callback(
-                            _icu_sync_progress_from_summary(
-                                summary,
-                                done=index,
-                                current_ride_id=activity.ride_id,
-                            )
-                        )
-                    continue
+                icu_activity_id = activity.icu_activity_id
 
-                fit_path = Path(activity.fit_file_path)
-                if not fit_path.exists():
-                    message = f"FIT file does not exist: {fit_path}"
-                    if not dry_run:
+                if remote is not None:
+                    icu_activity_id = remote.id
+                    if needs_upload:
+                        if not dry_run:
+                            self.db.mark_icu_synced(
+                                activity.ride_id,
+                                icu_activity_id=remote.id,
+                                icu_external_id=external_id,
+                                synced_at=datetime.now(UTC),
+                            )
+                        summary.already_remote += 1
+                elif needs_upload:
+                    fit_path = Path(activity.fit_file_path)
+                    if not fit_path.exists():
+                        message = f"FIT file does not exist: {fit_path}"
+                        if not dry_run:
+                            self.db.mark_icu_sync_failed(
+                                activity.ride_id,
+                                icu_external_id=external_id,
+                                error=message,
+                            )
+                        summary.failed += 1
+                        if progress_callback is not None:
+                            progress_callback(
+                                _icu_sync_progress_from_summary(
+                                    summary,
+                                    done=index,
+                                    current_ride_id=activity.ride_id,
+                                )
+                            )
+                        continue
+
+                    if dry_run:
+                        summary.skipped += 1
+                        if progress_callback is not None:
+                            progress_callback(
+                                _icu_sync_progress_from_summary(
+                                    summary,
+                                    done=index,
+                                    current_ride_id=activity.ride_id,
+                                )
+                            )
+                        continue
+
+                    try:
+                        icu_activity_id = icu_client.upload_activity_file(
+                            fit_path,
+                            external_id=external_id,
+                            name=activity.title,
+                            description="Uploaded by igp-ride",
+                        )
+                    except ICUClientError as exc:
                         self.db.mark_icu_sync_failed(
                             activity.ride_id,
                             icu_external_id=external_id,
-                            error=message,
+                            error=str(exc),
                         )
-                    summary.failed += 1
-                    if progress_callback is not None:
-                        progress_callback(
-                            _icu_sync_progress_from_summary(
-                                summary,
-                                done=index,
-                                current_ride_id=activity.ride_id,
+                        summary.failed += 1
+                        if progress_callback is not None:
+                            progress_callback(
+                                _icu_sync_progress_from_summary(
+                                    summary,
+                                    done=index,
+                                    current_ride_id=activity.ride_id,
+                                )
                             )
-                        )
-                    continue
+                        continue
 
-                if dry_run:
-                    summary.skipped += 1
-                    if progress_callback is not None:
-                        progress_callback(
-                            _icu_sync_progress_from_summary(
-                                summary,
-                                done=index,
-                                current_ride_id=activity.ride_id,
-                            )
-                        )
-                    continue
-
-                try:
-                    icu_activity_id = icu_client.upload_activity_file(
-                        fit_path,
-                        external_id=external_id,
-                        name=activity.title,
-                        description="Uploaded by igp-ride",
-                    )
-                except ICUClientError as exc:
-                    self.db.mark_icu_sync_failed(
+                    self.db.mark_icu_synced(
                         activity.ride_id,
+                        icu_activity_id=icu_activity_id,
                         icu_external_id=external_id,
-                        error=str(exc),
+                        synced_at=datetime.now(UTC),
                     )
-                    summary.failed += 1
-                    if progress_callback is not None:
-                        progress_callback(
-                            _icu_sync_progress_from_summary(
-                                summary,
-                                done=index,
-                                current_ride_id=activity.ride_id,
-                            )
-                        )
-                    continue
+                    summary.uploaded += 1
 
-                self.db.mark_icu_synced(
-                    activity.ride_id,
-                    icu_activity_id=icu_activity_id,
-                    icu_external_id=external_id,
-                    synced_at=datetime.now(UTC),
-                )
-                summary.uploaded += 1
+                if needs_note:
+                    note = self.db.get_activity_note(activity.ride_id)
+                    if note is not None and note.note_hash != note.icu_note_synced_hash:
+                        if not icu_activity_id:
+                            if dry_run:
+                                summary.skipped += 1
+                            else:
+                                self.db.mark_activity_note_icu_sync_failed(
+                                    activity.ride_id,
+                                    error="Intervals.icu activity id is not available.",
+                                )
+                                summary.notes_failed += 1
+                        elif dry_run:
+                            summary.skipped += 1
+                        else:
+                            self._sync_activity_note(
+                                icu_client=icu_client,
+                                activity_id=icu_activity_id,
+                                note=note,
+                                summary=summary,
+                            )
+
                 if progress_callback is not None:
                     progress_callback(
                         _icu_sync_progress_from_summary(
@@ -599,6 +642,42 @@ class RideSyncService:
             icu_client.close()
 
         return summary
+
+    def _sync_activity_note(
+        self,
+        *,
+        icu_client: IntervalsIcuClient,
+        activity_id: str,
+        note: ActivityNote,
+        summary: IcuSyncSummary,
+    ) -> None:
+        try:
+            icu_client.add_activity_message(activity_id, note.note)
+        except ICUClientError as exc:
+            self.db.mark_activity_note_icu_sync_failed(
+                note.ride_id,
+                error=str(exc),
+            )
+            summary.notes_failed += 1
+            return
+
+        self.db.mark_activity_note_icu_synced(
+            note.ride_id,
+            note_hash=note.note_hash,
+            synced_at=datetime.now(UTC),
+        )
+        summary.notes_synced += 1
+
+    def set_activity_note(self, ride_id: int, note: str) -> ActivityNote:
+        return self.db.set_activity_note(ride_id, note)
+
+    def get_activity_note(self, ride_id: int) -> ActivityNote | None:
+        return self.db.get_activity_note(ride_id)
+
+    def clear_activity_note(self, ride_id: int) -> bool:
+        if self.db.get_by_ride_id(ride_id) is None:
+            raise ValueError(f"Activity not found: {ride_id}")
+        return self.db.clear_activity_note(ride_id)
 
     def _load_icu_remote_external_ids(
         self,
@@ -894,6 +973,8 @@ def _icu_sync_progress_from_summary(
         already_remote=summary.already_remote,
         skipped=summary.skipped,
         failed=summary.failed,
+        notes_synced=summary.notes_synced,
+        notes_failed=summary.notes_failed,
         current_ride_id=current_ride_id,
     )
 

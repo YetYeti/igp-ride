@@ -204,3 +204,73 @@ class TestActivityDatabase:
         db = ActivityDatabase(tmp_path / "test.db")
         assert db.get_by_ride_id(999) is None
         db.close()
+
+    def test_set_get_and_clear_activity_note(self, tmp_path: Path):
+        db = ActivityDatabase(tmp_path / "test.db")
+        db.upsert(_make_activity(ride_id=1))
+
+        note = db.set_activity_note(1, "  Legs felt good.  ")
+        retrieved = db.get_activity_note(1)
+
+        assert note.note == "Legs felt good."
+        assert retrieved is not None
+        assert retrieved.note == "Legs felt good."
+        assert retrieved.icu_note_sync_status == "pending"
+        assert db.clear_activity_note(1) is True
+        assert db.get_activity_note(1) is None
+        db.close()
+
+    def test_activity_note_requires_existing_activity(self, tmp_path: Path):
+        db = ActivityDatabase(tmp_path / "test.db")
+
+        try:
+            db.set_activity_note(999, "Missing")
+        except Exception as exc:
+            assert "Activity not found: 999" in str(exc)
+        else:
+            raise AssertionError("Expected missing activity error")
+        db.close()
+
+    def test_activity_note_sync_state_tracks_hash_changes(self, tmp_path: Path):
+        db = ActivityDatabase(tmp_path / "test.db")
+        db.upsert(_make_activity(ride_id=1))
+        note = db.set_activity_note(1, "First note")
+        db.mark_activity_note_icu_synced(
+            1,
+            note_hash=note.note_hash,
+            synced_at=datetime(2026, 3, 2, 12, 0, 0),
+        )
+
+        same_note = db.set_activity_note(1, "First note")
+        changed_note = db.set_activity_note(1, "Changed note")
+
+        assert same_note.icu_note_sync_status == "synced"
+        assert changed_note.icu_note_sync_status == "pending"
+        assert changed_note.icu_note_synced_hash == note.note_hash
+        db.close()
+
+    def test_get_activities_pending_icu_note_sync(self, tmp_path: Path):
+        db = ActivityDatabase(tmp_path / "test.db")
+        db.upsert(_make_activity(ride_id=1, fit_file_status="downloaded"))
+        db.upsert(_make_activity(ride_id=2, fit_file_status="missing"))
+        db.upsert(_make_activity(ride_id=3, fit_file_status="downloaded"))
+        note_1 = db.set_activity_note(1, "Pending note")
+        note_2 = db.set_activity_note(2, "Missing fit note")
+        note_3 = db.set_activity_note(3, "Synced note")
+        db.mark_activity_note_icu_synced(
+            2,
+            note_hash=note_2.note_hash,
+            synced_at=datetime(2026, 3, 2, 12, 0, 0),
+        )
+        db.mark_activity_note_icu_synced(
+            3,
+            note_hash=note_3.note_hash,
+            synced_at=datetime(2026, 3, 2, 12, 0, 0),
+        )
+        db.set_activity_note(3, "Changed note")
+
+        pending = db.get_activities_pending_icu_note_sync()
+
+        assert note_1.note_hash
+        assert [activity.ride_id for activity in pending] == [1, 3]
+        db.close()

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import date, datetime
+from hashlib import sha256
 from pathlib import Path
 from typing import Literal
 
-from igp_ride.models import Activity
+from igp_ride.models import Activity, ActivityNote
 from igp_ride.utils import ensure_dir, get_logger
 
 
@@ -176,6 +177,140 @@ class ActivityDatabase:
         )
         self._get_connection().commit()
 
+    def set_activity_note(self, ride_id: int, note: str) -> ActivityNote:
+        normalized_note = note.strip()
+        if not normalized_note:
+            raise DatabaseError("Activity note cannot be empty.")
+        if self.get_by_ride_id(ride_id) is None:
+            raise DatabaseError(f"Activity not found: {ride_id}")
+
+        note_hash = _hash_note(normalized_note)
+        existing = self.get_activity_note(ride_id)
+        status = "pending"
+        sync_error = ""
+        synced_hash = ""
+        synced_at = None
+        if existing is not None:
+            synced_hash = existing.icu_note_synced_hash
+            synced_at = existing.icu_note_synced_at
+            if synced_hash == note_hash:
+                status = "synced"
+                sync_error = existing.icu_note_sync_error
+
+        cursor = self._get_connection().cursor()
+        cursor.execute(
+            """
+            INSERT INTO activity_notes (
+                ride_id,
+                note,
+                note_hash,
+                note_updated_at,
+                icu_note_synced_hash,
+                icu_note_synced_at,
+                icu_note_sync_status,
+                icu_note_sync_error
+            )
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?)
+            ON CONFLICT(ride_id) DO UPDATE SET
+                note = excluded.note,
+                note_hash = excluded.note_hash,
+                note_updated_at = CURRENT_TIMESTAMP,
+                icu_note_synced_hash = excluded.icu_note_synced_hash,
+                icu_note_synced_at = excluded.icu_note_synced_at,
+                icu_note_sync_status = excluded.icu_note_sync_status,
+                icu_note_sync_error = excluded.icu_note_sync_error,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                ride_id,
+                normalized_note,
+                note_hash,
+                synced_hash,
+                _to_iso(synced_at),
+                status,
+                sync_error,
+            ),
+        )
+        self._get_connection().commit()
+        note_record = self.get_activity_note(ride_id)
+        if note_record is None:
+            raise DatabaseError(f"Activity note was not saved: {ride_id}")
+        return note_record
+
+    def get_activity_note(self, ride_id: int) -> ActivityNote | None:
+        cursor = self._get_connection().cursor()
+        cursor.execute("SELECT * FROM activity_notes WHERE ride_id = ?", (ride_id,))
+        row = cursor.fetchone()
+        return self._row_to_activity_note(row) if row is not None else None
+
+    def clear_activity_note(self, ride_id: int) -> bool:
+        cursor = self._get_connection().cursor()
+        cursor.execute("DELETE FROM activity_notes WHERE ride_id = ?", (ride_id,))
+        self._get_connection().commit()
+        return cursor.rowcount > 0
+
+    def get_activities_pending_icu_note_sync(
+        self,
+        *,
+        since: date | None = None,
+        include_failed: bool = True,
+    ) -> list[Activity]:
+        query = """
+            SELECT activities.* FROM activities
+            INNER JOIN activity_notes ON activity_notes.ride_id = activities.ride_id
+            WHERE activities.fit_file_status = 'downloaded'
+              AND activity_notes.note_hash != activity_notes.icu_note_synced_hash
+              AND (activity_notes.icu_note_sync_status = 'pending'
+        """
+        params: list[object] = []
+        if include_failed:
+            query += " OR activity_notes.icu_note_sync_status = 'failed'"
+        query += ")"
+        if since is not None:
+            query += " AND date(activities.start_time) >= ?"
+            params.append(since.isoformat())
+        query += " ORDER BY activities.start_time ASC, activities.ride_id ASC"
+
+        cursor = self._get_connection().cursor()
+        cursor.execute(query, tuple(params))
+        return [self._row_to_activity(row) for row in cursor.fetchall()]
+
+    def mark_activity_note_icu_synced(
+        self,
+        ride_id: int,
+        *,
+        note_hash: str,
+        synced_at: datetime,
+    ) -> None:
+        cursor = self._get_connection().cursor()
+        cursor.execute(
+            """
+            UPDATE activity_notes
+            SET icu_note_synced_hash = ?,
+                icu_note_synced_at = ?,
+                icu_note_sync_status = 'synced',
+                icu_note_sync_error = '',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE ride_id = ?
+            """,
+            (note_hash, _to_iso(synced_at), ride_id),
+        )
+        self._get_connection().commit()
+
+    def mark_activity_note_icu_sync_failed(self, ride_id: int, *, error: str) -> None:
+        cursor = self._get_connection().cursor()
+        cursor.execute(
+            """
+            UPDATE activity_notes
+            SET icu_note_sync_status = 'failed',
+                icu_note_sync_error = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE ride_id = ?
+            """,
+            (error, ride_id),
+        )
+        self._get_connection().commit()
+
     def upsert(self, activity: Activity) -> None:
         logger.debug(
             "Upserting activity: ride_id=%d, title=%s", activity.ride_id, activity.title
@@ -317,6 +452,22 @@ class ActivityDatabase:
             )
             """
         )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS activity_notes (
+                ride_id INTEGER PRIMARY KEY,
+                note TEXT NOT NULL,
+                note_hash TEXT NOT NULL,
+                note_updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                icu_note_synced_hash TEXT NOT NULL DEFAULT '',
+                icu_note_synced_at TEXT,
+                icu_note_sync_status TEXT NOT NULL DEFAULT 'pending',
+                icu_note_sync_error TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
         self._get_connection().commit()
 
     def _ensure_activity_columns(self, columns: dict[str, str]) -> None:
@@ -386,6 +537,20 @@ class ActivityDatabase:
             updated_at=_from_iso(row["updated_at"]),
         )
 
+    def _row_to_activity_note(self, row: sqlite3.Row) -> ActivityNote:
+        return ActivityNote(
+            ride_id=row["ride_id"],
+            note=row["note"],
+            note_hash=row["note_hash"],
+            note_updated_at=_from_iso(row["note_updated_at"]),
+            icu_note_synced_hash=row["icu_note_synced_hash"],
+            icu_note_synced_at=_from_iso(row["icu_note_synced_at"]),
+            icu_note_sync_status=row["icu_note_sync_status"],
+            icu_note_sync_error=row["icu_note_sync_error"],
+            created_at=_from_iso(row["created_at"]),
+            updated_at=_from_iso(row["updated_at"]),
+        )
+
 
 def _to_iso(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
@@ -393,3 +558,7 @@ def _to_iso(value: datetime | None) -> str | None:
 
 def _from_iso(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value) if value else None
+
+
+def _hash_note(note: str) -> str:
+    return sha256(note.encode("utf-8")).hexdigest()

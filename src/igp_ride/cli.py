@@ -23,7 +23,7 @@ from igp_ride.config import (
 )
 from igp_ride.database import ActivitySortKey, DatabaseError
 from igp_ride.icu_client import ICUClientError, IntervalsIcuClient
-from igp_ride.models import Activity, SyncSummary
+from igp_ride.models import Activity, ActivityNote, SyncSummary
 from igp_ride.service import (
     IcuSyncProgress,
     IcuSyncSummary,
@@ -181,6 +181,31 @@ def build_parser() -> argparse.ArgumentParser:
     show_parser = subparsers.add_parser("show", help="Show activity details")
     show_parser.add_argument("activity_id", help="Activity ID or 'last'")
 
+    note_parser = subparsers.add_parser("note", help="Manage local activity notes")
+    note_subparsers = note_parser.add_subparsers(dest="note_command", required=True)
+    note_set_parser = note_subparsers.add_parser(
+        "set",
+        help="Set or replace one local note for an activity",
+    )
+    note_set_parser.add_argument("activity_id", help="Activity ID or 'last'")
+    note_input = note_set_parser.add_mutually_exclusive_group(required=True)
+    note_input.add_argument("--text", help="Note text")
+    note_input.add_argument(
+        "--stdin",
+        action="store_true",
+        help="Read note text from stdin",
+    )
+    note_show_parser = note_subparsers.add_parser(
+        "show",
+        help="Show the local note for an activity",
+    )
+    note_show_parser.add_argument("activity_id", help="Activity ID or 'last'")
+    note_clear_parser = note_subparsers.add_parser(
+        "clear",
+        help="Clear the local note for an activity",
+    )
+    note_clear_parser.add_argument("activity_id", help="Activity ID or 'last'")
+
     return parser
 
 
@@ -216,6 +241,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             if args.command == "show":
                 return cmd_show(args.activity_id)
+            if args.command == "note":
+                return cmd_note(args)
         except ConfigurationError as exc:
             _print_error_block(
                 _command_title(args),
@@ -670,6 +697,7 @@ def cmd_icu_sync(dry_run: bool, *, force: bool = False) -> int:
                 f"Progress: done={p.done} total={p.total} percent={percent}"
                 f" | uploaded {p.uploaded}"
                 f" | remote {p.already_remote}"
+                f" | notes {p.notes_synced}"
                 f" | skipped {p.skipped}"
                 f" | failed {p.failed} ",
                 end="",
@@ -896,6 +924,122 @@ def cmd_show(activity_id: str) -> int:
     return 0
 
 
+def cmd_note(args: argparse.Namespace) -> int:
+    if args.note_command == "set":
+        note = _read_text_stdin("Activity note") if args.stdin else args.text
+        return cmd_note_set(args.activity_id, note)
+    if args.note_command == "show":
+        return cmd_note_show(args.activity_id)
+    if args.note_command == "clear":
+        return cmd_note_clear(args.activity_id)
+    raise ValueError(f"Unknown note command: {args.note_command}")
+
+
+def cmd_note_set(activity_id: str, note: str) -> int:
+    config = AppConfig.load()
+    service = RideSyncService(config)
+    try:
+        activity = _resolve_activity(service, activity_id)
+        note_record = service.set_activity_note(activity.ride_id, note)
+    finally:
+        service.close()
+
+    if _json_output():
+        _print_json(
+            {
+                "command": "note.set",
+                "result": "success",
+                "note": _activity_note_payload(note_record),
+                "next": ["igp-ride icu sync"],
+            }
+        )
+        return 0
+
+    _print_title("Activity Note")
+    _print_result("success")
+    _print_field("ID", note_record.ride_id)
+    _print_field("ICU Note Status", note_record.icu_note_sync_status)
+    _print_next("igp-ride icu sync")
+    return 0
+
+
+def cmd_note_show(activity_id: str) -> int:
+    config = AppConfig.load()
+    service = RideSyncService(config)
+    try:
+        activity = _resolve_activity(service, activity_id)
+        note_record = service.get_activity_note(activity.ride_id)
+    finally:
+        service.close()
+
+    if note_record is None:
+        if _json_output():
+            _print_json(
+                {
+                    "command": "note.show",
+                    "result": "success",
+                    "ride_id": activity.ride_id,
+                    "has_note": False,
+                    "note": None,
+                }
+            )
+            return 0
+
+        _print_title("Activity Note")
+        _print_field("ID", activity.ride_id)
+        _print_field("Has Note", False)
+        return 0
+
+    if _json_output():
+        _print_json(
+            {
+                "command": "note.show",
+                "result": "success",
+                "ride_id": activity.ride_id,
+                "has_note": True,
+                "note": _activity_note_payload(note_record),
+            }
+        )
+        return 0
+
+    _print_title("Activity Note")
+    _print_field("ID", note_record.ride_id)
+    _print_field("Has Note", True)
+    _print_field("ICU Note Status", note_record.icu_note_sync_status)
+    if note_record.icu_note_sync_error:
+        _print_field("ICU Note Error", note_record.icu_note_sync_error)
+    print()
+    print(note_record.note)
+    return 0
+
+
+def cmd_note_clear(activity_id: str) -> int:
+    config = AppConfig.load()
+    service = RideSyncService(config)
+    try:
+        activity = _resolve_activity(service, activity_id)
+        cleared = service.clear_activity_note(activity.ride_id)
+    finally:
+        service.close()
+
+    if _json_output():
+        _print_json(
+            {
+                "command": "note.clear",
+                "result": "success",
+                "ride_id": activity.ride_id,
+                "cleared": cleared,
+            }
+        )
+        return 0
+
+    _print_title("Activity Note")
+    _print_result("success")
+    _print_field("ID", activity.ride_id)
+    _print_field("Cleared", cleared)
+    return 0
+
+
 def print_reset_summary(results: list[ResetResult]) -> None:
     deleted = sum(1 for item in results if item.status == "deleted")
     not_found = sum(1 for item in results if item.status == "not_found")
@@ -1045,6 +1189,27 @@ def _read_secret_stdin(label: str) -> str:
     return value
 
 
+def _read_text_stdin(label: str) -> str:
+    value = sys.stdin.read().strip()
+    if not value:
+        raise ConfigurationError(f"{label} is required on stdin.")
+    return value
+
+
+def _resolve_activity(service: RideSyncService, activity_id: str) -> Activity:
+    if activity_id == "last":
+        activity = service.get_latest_activity()
+        if activity is None:
+            raise ValueError("No activities found.")
+        return activity
+    if not activity_id.isdecimal():
+        raise ValueError("Activity ID must be a number or 'last'.")
+    activity = service.show_activity(int(activity_id))
+    if activity is None:
+        raise ValueError(f"Activity not found: {activity_id}")
+    return activity
+
+
 def _parse_date_arg(value: str | None, option: str) -> date | None:
     if value is None:
         return None
@@ -1078,6 +1243,7 @@ def _command_title(args: argparse.Namespace) -> str:
         "icu": _icu_command_title(args),
         "list": "Activity List",
         "show": "Activity Details",
+        "note": _note_command_title(args),
     }
     return command_titles.get(_as_str_state(getattr(args, "command", "")), "igp-ride")
 
@@ -1090,6 +1256,15 @@ def _icu_command_title(args: argparse.Namespace) -> str:
         "sync": "ICU Sync",
     }
     return titles.get(_as_str_state(getattr(args, "icu_command", "")), "ICU")
+
+
+def _note_command_title(args: argparse.Namespace) -> str:
+    titles: Final[dict[str, str]] = {
+        "set": "Activity Note",
+        "show": "Activity Note",
+        "clear": "Activity Note",
+    }
+    return titles.get(_as_str_state(getattr(args, "note_command", "")), "Activity Note")
 
 
 def _configuration_error_tip(args: argparse.Namespace, message: str) -> str | None:
@@ -1218,6 +1393,8 @@ def _print_icu_sync_summary(summary: IcuSyncSummary) -> None:
             ("already_remote", summary.already_remote),
             ("skipped", summary.skipped),
             ("failed", summary.failed),
+            ("notes_synced", summary.notes_synced),
+            ("notes_failed", summary.notes_failed),
             ("dry_run", summary.dry_run),
         ]
     )
@@ -1230,6 +1407,8 @@ def _icu_sync_summary_payload(summary: IcuSyncSummary) -> dict[str, int | bool]:
         "already_remote": summary.already_remote,
         "skipped": summary.skipped,
         "failed": summary.failed,
+        "notes_synced": summary.notes_synced,
+        "notes_failed": summary.notes_failed,
         "dry_run": summary.dry_run,
     }
 
@@ -1298,6 +1477,19 @@ def _activity_detail_payload(activity: Activity) -> dict[str, object]:
         }
     )
     return payload
+
+
+def _activity_note_payload(note: ActivityNote) -> dict[str, object]:
+    return {
+        "ride_id": note.ride_id,
+        "note": note.note,
+        "note_hash": note.note_hash,
+        "note_updated_at": _format_json_datetime(note.note_updated_at),
+        "icu_note_synced_hash": note.icu_note_synced_hash,
+        "icu_note_synced_at": _format_json_datetime(note.icu_note_synced_at),
+        "icu_note_sync_status": note.icu_note_sync_status,
+        "icu_note_sync_error": note.icu_note_sync_error,
+    }
 
 
 def _format_json_datetime(value: datetime | None) -> str | None:
