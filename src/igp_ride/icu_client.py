@@ -111,7 +111,7 @@ class IntervalsIcuClient:
     def add_activity_message(self, activity_id: str, content: str) -> None:
         response = self._session.post(
             f"{INTERVALS_ICU_API_BASE_URL}/activity/{activity_id}/messages",
-            json={"message": content},
+            json={"content": content},
             timeout=self.timeout,
         )
         _raise_for_status(response)

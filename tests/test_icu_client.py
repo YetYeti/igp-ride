@@ -119,7 +119,7 @@ class TestIntervalsIcuClient:
 
         post.assert_called_once_with(
             f"{INTERVALS_ICU_API_BASE_URL}/activity/i999/messages",
-            json={"message": "Legs felt good."},
+            json={"content": "Legs felt good."},
             timeout=30,
         )
         client.close()
