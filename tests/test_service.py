@@ -442,6 +442,62 @@ class TestSyncModes:
             ].get("page_size")
             assert actual_page_size == 20
 
+    def test_sync_downloads_fit_with_separate_clients(self, tmp_path: Path):
+        config = MagicMock()
+        config.db_path = ":memory:"
+        config.fit_dir = tmp_path / "fit"
+        config.username = "test"
+        config.password = "test"
+        config.base_url = "https://example.com"
+        config.session_file = tmp_path / "session.json"
+        download_client_1 = MagicMock()
+        download_client_2 = MagicMock()
+
+        def write_bad_fit(_ride_id: int, path: Path) -> None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"bad fit")
+
+        download_client_1.download_fit_file.side_effect = write_bad_fit
+        download_client_2.download_fit_file.side_effect = write_bad_fit
+
+        with (
+            patch("igp_ride.service.IGPSportClient") as MockClient,
+            patch("igp_ride.service.ActivityDatabase") as MockDB,
+            patch("igp_ride.service.parse_fit_file", side_effect=FitParseError("bad")),
+        ):
+            main_client = MockClient.return_value
+            mock_db = MockDB.return_value
+            mock_db.get_sync_meta.return_value = None
+            mock_db.get_all_ride_ids.return_value = set()
+            main_client.get_activity_page.return_value = (
+                [{"RideId": 1}, {"RideId": 2}],
+                2,
+            )
+
+            service = RideSyncService(config)
+            service._create_download_client = MagicMock(
+                side_effect=[download_client_1, download_client_2]
+            )
+            progress: list[SyncProgress] = []
+            summary = service.sync(force_full=True, progress_callback=progress.append)
+
+        assert summary.remote_fetched == 2
+        main_client.download_fit_file.assert_not_called()
+        assert service._create_download_client.call_count == 2
+        assert {
+            download_client_1.download_fit_file.call_args.args[0],
+            download_client_2.download_fit_file.call_args.args[0],
+        } == {1, 2}
+        download_client_1.close.assert_called_once_with()
+        download_client_2.close.assert_called_once_with()
+        downloading_progress = [p for p in progress if p.stage == "downloading"]
+        assert downloading_progress[0] == SyncProgress(
+            stage="downloading",
+            done=0,
+            total=2,
+        )
+        assert downloading_progress[-1].done == 2
+
     def test_sync_incremental_fetches_until_known_activity_boundary(self):
         from datetime import timedelta
 

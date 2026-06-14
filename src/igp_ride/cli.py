@@ -384,18 +384,24 @@ def cmd_update(force_full: bool) -> int:
             if p.total <= 0:
                 return
             percent = int((p.done / p.total) * 100)
+            message = "".join(
+                (
+                    "\r\033[2K",
+                    f"Progress: stage={p.stage}",
+                    f" done={p.done} total={p.total} percent={percent}",
+                    f" | new {p.new_activities}",
+                    f" | updated {p.updated_activities}",
+                    f" | skipped {p.activities_skipped}",
+                    f" | failed {p.fit_files_failed} ",
+                )
+            )
             print(
-                "\r\033[2K"
-                f"Progress: done={p.done} total={p.total} percent={percent}"
-                f" | new {p.new_activities}"
-                f" | updated {p.updated_activities}"
-                f" | skipped {p.activities_skipped}"
-                f" | failed {p.fit_files_failed} ",
+                message,
                 end="",
                 file=sys.stderr,
                 flush=True,
             )
-            current_stage = "processing"
+            current_stage = p.stage
             return
 
         if p.stage == "fetching":
@@ -407,6 +413,11 @@ def cmd_update(force_full: bool) -> int:
         if p.total <= 0:
             return
 
+        if p.stage != current_stage:
+            print(f"Progress: stage={p.stage}", file=sys.stderr)
+            current_stage = p.stage
+            last_plain_percent = -1
+
         percent = int((p.done / p.total) * 100)
         # Avoid flooding non-interactive outputs; print every 10% and final state.
         if percent < 100 and percent // 10 == last_plain_percent // 10:
@@ -416,7 +427,7 @@ def cmd_update(force_full: bool) -> int:
             f"Progress: done={p.done} total={p.total} percent={percent}",
             file=sys.stderr,
         )
-        current_stage = "processing"
+        current_stage = p.stage
 
     try:
         summary = service.sync(force_full=force_full, progress_callback=render_progress)
