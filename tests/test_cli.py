@@ -67,6 +67,8 @@ class FakeUpdateService:
         assert force_full is False
         assert progress_callback is not None
         progress_callback(SyncProgress(stage="fetching", done=0, total=0))
+        progress_callback(SyncProgress(stage="downloading", done=0, total=2))
+        progress_callback(SyncProgress(stage="downloading", done=2, total=2))
         progress_callback(
             SyncProgress(
                 stage="processing",
@@ -177,6 +179,7 @@ class TestUpdateOutput:
         assert service.closed is True
         assert "== Update ==" in captured.out
         assert "Progress: stage=fetching" in captured.err
+        assert "Progress: stage=downloading" in captured.err
         assert "Progress: done=12 total=57 percent=21" in captured.err
         assert "Progress: done=57 total=57 percent=100" in captured.err
         assert "new=1 updated=0" not in captured.out
