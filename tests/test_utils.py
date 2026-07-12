@@ -3,8 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from igp_ride.utils import format_duration
-from igp_ride.utils import get_config_dir, get_data_dir, get_log_dir
+from igp_ride.utils import format_duration, get_config_dir, get_data_dir, get_log_dir
 
 
 class TestFormatDuration:
@@ -28,6 +27,52 @@ class TestFormatDuration:
 
     def test_float_truncated(self):
         assert format_duration(90.7) == "0:01:30"
+
+
+class TestSetupLogging:
+    def _reset(self):
+        import logging
+
+        from igp_ride import utils
+
+        utils._logging_initialized = False
+        logger = logging.getLogger("igp_ride")
+        logger.handlers = []
+        return utils, logger
+
+    def test_verbose_mirrors_debug_to_console(self):
+        import logging
+
+        utils, logger = self._reset()
+        try:
+            with patch("igp_ride.utils.RotatingFileHandler"):
+                utils.setup_logging(verbose=True)
+            console_levels = [
+                h.level
+                for h in logger.handlers
+                if type(h).__name__ == "StreamHandler"
+            ]
+            assert logging.DEBUG in console_levels
+        finally:
+            logger.handlers = []
+            utils._logging_initialized = False
+
+    def test_default_keeps_console_at_warning(self):
+        import logging
+
+        utils, logger = self._reset()
+        try:
+            with patch("igp_ride.utils.RotatingFileHandler"):
+                utils.setup_logging(verbose=False)
+            console_levels = [
+                h.level
+                for h in logger.handlers
+                if type(h).__name__ == "StreamHandler"
+            ]
+            assert console_levels == [logging.WARNING]
+        finally:
+            logger.handlers = []
+            utils._logging_initialized = False
 
 
 class TestPlatformDirs:

@@ -33,7 +33,6 @@ from igp_ride.service import (
 )
 from igp_ride.utils import setup_logging
 
-
 _title_printed = False
 _output_format = "text"
 _no_input = False
@@ -66,6 +65,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-input",
         action="store_true",
         help="Fail instead of prompting for input.",
+    )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Show debug-level logs on the console (default: warnings only).",
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -210,10 +215,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    setup_logging()
-    _configure_stderr_buffering()
     parser = build_parser()
     args = parser.parse_args(argv)
+    setup_logging(verbose=args.verbose)
+    _configure_stderr_buffering()
     _reset_output_state(output_format=args.format, no_input=args.no_input)
     if args.command is None:
         return cmd_welcome()

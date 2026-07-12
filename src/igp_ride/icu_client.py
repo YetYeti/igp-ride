@@ -8,7 +8,6 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-
 INTERVALS_ICU_API_BASE_URL = "https://intervals.icu/api/v1"
 INTERVALS_ICU_CURRENT_USER = "0"
 

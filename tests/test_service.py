@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from igp_ride.client import AuthenticationError
+from igp_ride.models import Activity, ActivityNote
+from igp_ride.parser import FitParseError
 from igp_ride.service import (
     IcuSyncProgress,
     IcuSyncSummary,
@@ -19,8 +21,6 @@ from igp_ride.service import (
     _parse_start_time,
     build_icu_external_id,
 )
-from igp_ride.models import Activity, ActivityNote
-from igp_ride.parser import FitParseError
 
 
 class TestAsInt:

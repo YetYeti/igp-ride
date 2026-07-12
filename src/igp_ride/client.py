@@ -14,7 +14,6 @@ from urllib3.util.retry import Retry
 
 from igp_ride.utils import ensure_dir, get_logger
 
-
 logger = get_logger(__name__)
 
 

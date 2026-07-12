@@ -8,7 +8,6 @@ from pathlib import Path
 
 from platformdirs import user_config_path, user_data_path, user_log_path
 
-
 APP_NAME = "igp-ride"
 
 MAX_LOG_BYTES = 10 * 1024 * 1024  # 10 MB
@@ -42,8 +41,12 @@ def get_log_file() -> Path:
     return get_log_dir() / f"{APP_NAME}.log"
 
 
-def setup_logging() -> None:
-    """Configure the igp_ride package logger exactly once."""
+def setup_logging(*, verbose: bool = False) -> None:
+    """Configure the igp_ride package logger exactly once.
+
+    By default only warnings/errors reach the console; the file handler always
+    captures DEBUG. Pass verbose=True to mirror DEBUG to stderr as well.
+    """
     global _logging_initialized
     if _logging_initialized:
         return
@@ -52,9 +55,9 @@ def setup_logging() -> None:
     logger = logging.getLogger("igp_ride")
     logger.setLevel(logging.DEBUG)
 
-    # Console handler: WARNING and above to stderr
+    # Console handler: WARNING and above to stderr (DEBUG when --verbose)
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.WARNING)
+    console_handler.setLevel(logging.DEBUG if verbose else logging.WARNING)
     console_handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
     logger.addHandler(console_handler)
 

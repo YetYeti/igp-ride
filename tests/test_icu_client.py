@@ -7,9 +7,9 @@ import pytest
 import requests
 
 from igp_ride.icu_client import (
-    ICUClientError,
     INTERVALS_ICU_API_BASE_URL,
     INTERVALS_ICU_CURRENT_USER,
+    ICUClientError,
     IntervalsIcuClient,
 )
 

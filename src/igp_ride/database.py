@@ -9,7 +9,6 @@ from typing import Literal
 from igp_ride.models import Activity, ActivityNote
 from igp_ride.utils import ensure_dir, get_logger
 
-
 logger = get_logger(__name__)
 
 

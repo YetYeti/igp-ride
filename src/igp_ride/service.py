@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import shutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from getpass import getpass
 from pathlib import Path
 from typing import Any, Callable
-
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from igp_ride.client import DataSyncError, IGPSportClient, _looks_like_fit_file
 from igp_ride.config import (
@@ -16,13 +15,11 @@ from igp_ride.config import (
     delete_session_data,
     save_credentials,
 )
-
 from igp_ride.database import ActivityDatabase, ActivitySortKey
 from igp_ride.icu_client import ICUClientError, IntervalsIcuClient
 from igp_ride.models import Activity, ActivityNote, SyncSummary
 from igp_ride.parser import FitParseError, normalize_session_data, parse_fit_file
 from igp_ride.utils import get_logger
-
 
 logger = get_logger(__name__)
 MAX_ACTIVITY_PAGES = 1000

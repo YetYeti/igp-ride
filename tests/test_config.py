@@ -5,8 +5,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from igp_ride.config import (
-    AppConfig,
     DEFAULT_BASE_URL,
+    AppConfig,
     clear_icu_config,
     delete_credentials,
     get_default_config_dir,
