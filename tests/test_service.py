@@ -138,6 +138,21 @@ def _activity_note(ride_id: int, note: str = "Legs felt good.") -> ActivityNote:
     )
 
 
+class TestDownloadClient:
+    def test_download_client_does_not_persist_session(self, tmp_path: Path):
+        # Concurrent download workers must never write back to the shared
+        # session file; the service wires them up with persist_session=False.
+        config = _icu_config(tmp_path)
+        config.db_path = tmp_path / "rides.db"
+        service = RideSyncService(config)
+        try:
+            download_client = service._create_download_client()
+            assert download_client._persist_session is False
+        finally:
+            download_client.close()
+            service.close()
+
+
 class TestIcuSync:
     def test_build_icu_external_id(self):
         assert build_icu_external_id(123) == "igp-123"

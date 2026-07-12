@@ -102,6 +102,9 @@ class RideSyncService:
             password=self.config.password,
             base_url=self.config.base_url,
             session_path=self.config.session_file,
+            # Download workers run concurrently; never let them write back to
+            # the shared session file (avoids interleaved/truncated writes).
+            persist_session=False,
         )
 
     @staticmethod

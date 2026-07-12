@@ -77,6 +77,7 @@ class IGPSportClient:
         base_url: str,
         session_path: Path,
         load_session: bool = True,
+        persist_session: bool = True,
     ):
         self.username = username
         self.password = password
@@ -92,6 +93,7 @@ class IGPSportClient:
         self._session_saved_at: datetime | None = None
         self._session_expires_at: datetime | None = None
         self._refresh_token = ""
+        self._persist_session = persist_session
         if load_session:
             self._load_session()
 
@@ -210,7 +212,7 @@ class IGPSportClient:
 
     def _ensure_authenticated(self) -> None:
         if not self._authenticated or self._session_is_stale():
-            self.login()
+            self.login(save_session=self._persist_session)
 
     def _load_session(self) -> None:
         if not self.session_path.exists():

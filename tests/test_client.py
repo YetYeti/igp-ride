@@ -94,6 +94,35 @@ class TestSessionPersistence:
         client.close()
 
 
+class TestPersistSession:
+    def test_ensure_authenticated_saves_by_default(self, tmp_path: Path):
+        client = IGPSportClient(
+            username="tester",
+            password="secret",
+            base_url="https://example.com",
+            session_path=tmp_path / "session.json",
+        )
+        with patch.object(client, "login") as login:
+            client._ensure_authenticated()
+        login.assert_called_once_with(save_session=True)
+        client.close()
+
+    def test_ensure_authenticated_skips_save_when_persist_disabled(
+        self, tmp_path: Path
+    ):
+        client = IGPSportClient(
+            username="tester",
+            password="secret",
+            base_url="https://example.com",
+            session_path=tmp_path / "session.json",
+            persist_session=False,
+        )
+        with patch.object(client, "login") as login:
+            client._ensure_authenticated()
+        login.assert_called_once_with(save_session=False)
+        client.close()
+
+
 class TestLogin:
     def test_login_posts_json_and_stores_bearer_token(self, tmp_path: Path):
         client = IGPSportClient(
