@@ -298,7 +298,9 @@ class TestActivityPage:
 
 
 class TestDownloadFitFile:
-    def test_download_fit_file_uses_session_get_for_signed_url(self, tmp_path: Path):
+    def test_download_fit_file_fetches_signed_url_via_dedicated_session(
+        self, tmp_path: Path
+    ):
         save_path = tmp_path / "123.fit"
         client = IGPSportClient(
             username="tester",
@@ -318,18 +320,60 @@ class TestDownloadFitFile:
         fit_response.raise_for_status.return_value = None
         fit_response.content = b"\x0e\x10\x00\x00\x00\x00\x00\x00.FITdata"
 
-        with patch.object(
-            client._session, "get", side_effect=[download_url_response, fit_response]
-        ) as session_get:
+        with (
+            patch.object(
+                client._session, "get", return_value=download_url_response
+            ) as authed_get,
+            patch.object(
+                client._download_session, "get", return_value=fit_response
+            ) as download_get,
+        ):
             client.download_fit_file(123, save_path)
 
-        assert session_get.call_count == 2
-        args0, _ = session_get.call_args_list[0]
-        assert "getDownloadUrl" in args0[0]
-        args1, kwargs1 = session_get.call_args_list[1]
-        assert args1[0] == "https://cdn.example.com/123.fit"
-        assert kwargs1["timeout"] == 60
+        # The signed URL is requested from the IGPSPORT API with credentials.
+        authed_args, _ = authed_get.call_args
+        assert "getDownloadUrl" in authed_args[0]
+        # The file itself is fetched via the dedicated (credential-free) session.
+        dl_args, dl_kwargs = download_get.call_args
+        assert dl_args[0] == "https://cdn.example.com/123.fit"
+        assert dl_kwargs["timeout"] == 60
         assert save_path.read_bytes() == fit_response.content
+        client.close()
+
+    def test_download_fit_file_does_not_leak_authorization_to_download_url(
+        self, tmp_path: Path
+    ):
+        client = IGPSportClient(
+            username="tester",
+            password="secret",
+            base_url="https://example.com",
+            session_path=tmp_path / "session.json",
+        )
+        client._authenticated = True
+        client._session_saved_at = datetime.now(UTC)
+        client._session.headers.update({"Authorization": "Bearer token"})
+
+        download_url_response = Mock()
+        download_url_response.raise_for_status.return_value = None
+        download_url_response.json.return_value = {
+            "data": "https://evil.example.com/123.fit"
+        }
+        fit_response = Mock()
+        fit_response.raise_for_status.return_value = None
+        fit_response.content = b"\x0e\x10\x00\x00\x00\x00\x00\x00.FITdata"
+
+        with (
+            patch.object(client._session, "get", return_value=download_url_response),
+            patch.object(
+                client._download_session, "get", return_value=fit_response
+            ) as download_get,
+        ):
+            client.download_fit_file(123, tmp_path / "123.fit")
+
+        # The download session never carries the Bearer token, so a tampered or
+        # redirected signed URL cannot exfiltrate credentials to a third party.
+        assert "Authorization" not in client._download_session.headers
+        assert download_get.call_args.args[0] == "https://evil.example.com/123.fit"
         client.close()
 
     def test_download_fit_file_rejects_http_url(self, tmp_path: Path):
@@ -377,10 +421,9 @@ class TestDownloadFitFile:
         fit_response.content = b"<html>expired</html>"
 
         with (
+            patch.object(client._session, "get", return_value=download_url_response),
             patch.object(
-                client._session,
-                "get",
-                side_effect=[download_url_response, fit_response],
+                client._download_session, "get", return_value=fit_response
             ),
             pytest.raises(DataSyncError),
         ):

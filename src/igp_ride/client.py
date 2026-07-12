@@ -84,6 +84,10 @@ class IGPSportClient:
         self.session_path = session_path
         self.timeout = 30
         self._session = self._create_session()
+        # Dedicated session for CDN downloads: it never receives the Bearer
+        # token, so a tampered or redirected signed URL cannot leak the user's
+        # credentials to a third-party host.
+        self._download_session = self._create_session()
         self._authenticated = False
         self._session_saved_at: datetime | None = None
         self._session_expires_at: datetime | None = None
@@ -93,6 +97,7 @@ class IGPSportClient:
 
     def close(self) -> None:
         self._session.close()
+        self._download_session.close()
 
     def login(self, *, save_session: bool = True) -> None:
         logger.debug("Attempting login for user: %s", self.username)
@@ -182,7 +187,7 @@ class IGPSportClient:
         if not isinstance(fit_url, str) or not fit_url.startswith("https://"):
             raise DataSyncError(f"FIT download URL not available for ride {ride_id}.")
 
-        file_response = self._session.get(fit_url, timeout=60)
+        file_response = self._download_session.get(fit_url, timeout=60)
         file_response.raise_for_status()
         content = file_response.content
         if not _looks_like_fit_file(content):
