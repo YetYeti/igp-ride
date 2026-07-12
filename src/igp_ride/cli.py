@@ -276,6 +276,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         except ValueError as exc:
             _print_error_block(_command_title(args), str(exc))
             return 2
+        except EOFError:
+            _print_error_block(
+                _command_title(args),
+                "Input closed before a value was provided.",
+                "Pass --no-input and the relevant flag (e.g. --password-stdin)",
+            )
+            return 2
         return 0
     finally:
         _reset_output_state()

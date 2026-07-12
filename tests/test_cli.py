@@ -269,6 +269,16 @@ class TestLoginLogoutOutput:
         )
         assert "secret-from-stdin" not in captured.out
 
+    def test_main_handles_eoferror_without_traceback(self, capsys):
+        # A closed stdin (pipe/CI without --no-input) surfaces as EOFError from
+        # input()/getpass(); main must convert it to a clean exit, not a traceback.
+        with patch("igp_ride.cli.cmd_login", side_effect=EOFError):
+            exit_code = main(["login"])
+
+        captured = capsys.readouterr()
+        assert exit_code == 2
+        assert "Input closed" in captured.err
+
     def test_login_new_username_no_input_requires_new_password(
         self, tmp_path: Path, capsys
     ):
