@@ -37,7 +37,7 @@ description: 使用 igp-ride 命令行工具同步 IGPSPORT 骑行活动到本�
 
 使用前确认环境满足：
 
-- Python 3.14 或更新版本
+- Python 3.12 或更新版本
 - IGPSPORT 账号
 - 如需上传到 Intervals.icu，需要 Intervals.icu API key
 
