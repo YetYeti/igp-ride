@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Any, cast
 
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+
+from igp_ride.http_util import build_retrying_session
 
 INTERVALS_ICU_API_BASE_URL = "https://intervals.icu/api/v1"
 INTERVALS_ICU_CURRENT_USER = "0"
@@ -34,7 +34,7 @@ class IntervalsIcuClient:
     ):
         self.api_key = api_key
         self.timeout = timeout
-        self._session = self._create_session()
+        self._session = build_retrying_session()
         self._session.auth = ("API_KEY", api_key)
         self._session.headers.update({"Accept": "application/json"})
 
@@ -114,20 +114,6 @@ class IntervalsIcuClient:
             timeout=self.timeout,
         )
         _raise_for_status(response)
-
-    def _create_session(self) -> requests.Session:
-        session = requests.Session()
-        retry_strategy = Retry(
-            total=3,
-            backoff_factor=1,
-            status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["GET", "POST"],
-        )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
-        session.mount("http://", adapter)
-        session.mount("https://", adapter)
-        return session
-
 
 def _decode_json_response(response: requests.Response) -> object:
     _raise_for_status(response)

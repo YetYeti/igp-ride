@@ -9,9 +9,8 @@ from pathlib import Path
 from typing import Any, Final, TypeVar, cast
 
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
+from igp_ride.http_util import build_retrying_session
 from igp_ride.utils import ensure_dir, get_logger
 
 logger = get_logger(__name__)
@@ -83,11 +82,11 @@ class IGPSportClient:
         self.base_url = base_url.rstrip("/")
         self.session_path = session_path
         self.timeout = 30
-        self._session = self._create_session()
+        self._session = build_retrying_session()
         # Dedicated session for CDN downloads: it never receives the Bearer
         # token, so a tampered or redirected signed URL cannot leak the user's
         # credentials to a third-party host.
-        self._download_session = self._create_session()
+        self._download_session = build_retrying_session()
         self._authenticated = False
         self._session_saved_at: datetime | None = None
         self._session_expires_at: datetime | None = None
@@ -195,19 +194,6 @@ class IGPSportClient:
             raise DataSyncError(f"Downloaded file is not a valid FIT file: {ride_id}.")
         save_path.write_bytes(content)
         logger.info("FIT file saved for ride %d: %s", ride_id, save_path)
-
-    def _create_session(self) -> requests.Session:
-        session = requests.Session()
-        retry_strategy = Retry(
-            total=3,
-            backoff_factor=1,
-            status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["GET", "POST"],
-        )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
-        session.mount("http://", adapter)
-        session.mount("https://", adapter)
-        return session
 
     def _ensure_authenticated(self) -> None:
         if not self._authenticated or self._session_is_stale():
