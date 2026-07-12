@@ -19,9 +19,5 @@ src/*.egg-info/
 # Build artifacts
 dist/
 
-# Agent docs
-docs/
-AGENTS.md
-
 # Git history backup
 .git.backup-history/
