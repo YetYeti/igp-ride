@@ -952,9 +952,14 @@ def _parse_start_time(raw_activity: dict[str, Any]) -> datetime | None:
             continue
         try:
             normalized = value.replace("Z", "+00:00")
-            return datetime.fromisoformat(normalized)
+            parsed = datetime.fromisoformat(normalized)
         except ValueError:
             continue
+        # Normalize to UTC so API-sourced times line up with FIT-sourced times
+        # (which are also stored as UTC). Naive values are assumed UTC.
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
     return None
 
 

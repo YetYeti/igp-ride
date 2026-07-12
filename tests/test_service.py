@@ -16,6 +16,7 @@ from igp_ride.service import (
     _as_int,
     _as_str,
     _calculate_fetch_limits,
+    _parse_start_time,
     build_icu_external_id,
 )
 from igp_ride.models import Activity, ActivityNote
@@ -71,6 +72,26 @@ class TestAsStr:
 
     def test_non_string_returns_default(self):
         assert _as_str(42, "fallback") == "fallback"
+
+
+class TestParseStartTime:
+    def test_naive_string_assumed_utc(self):
+        result = _parse_start_time({"StartTime": "2026-07-12T01:30:00"})
+        assert result is not None
+        assert result.utcoffset().total_seconds() == 0
+
+    def test_z_suffix_normalized_to_utc(self):
+        result = _parse_start_time({"StartTime": "2026-07-12T01:30:00Z"})
+        assert result is not None
+        assert result.utcoffset().total_seconds() == 0
+
+    def test_offset_normalized_to_utc(self):
+        # 01:30+08:00 is 17:30 UTC on the previous day.
+        result = _parse_start_time({"StartTime": "2026-07-12T01:30:00+08:00"})
+        assert result == datetime(2026, 7, 11, 17, 30, tzinfo=UTC)
+
+    def test_returns_none_when_no_timestamp(self):
+        assert _parse_start_time({}) is None
 
 
 class TestSyncProgress:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 
 from igp_ride.parser import normalize_session_data, parse_fit_file
@@ -44,6 +46,13 @@ class TestNormalizeSessionData:
         result = normalize_session_data(data)
         assert result["sport"] == "running"
         assert result["sub_sport"] == "trail"
+
+    def test_start_time_normalized_to_utc(self):
+        # FIT start_time arrives naive (UTC by spec) and must be stored as UTC,
+        # not converted to the local timezone.
+        data = {"session": [{"start_time": datetime(2026, 7, 12, 1, 30, 0)}]}
+        result = normalize_session_data(data)
+        assert result["start_time"].tzinfo == timezone.utc
 
 
 class TestParseFitFile:

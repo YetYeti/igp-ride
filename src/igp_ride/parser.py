@@ -56,7 +56,10 @@ def normalize_session_data(parsed_data: dict[str, Any]) -> dict[str, Any]:
     session_record = sessions[0]
     start_time = session_record.get("start_time")
     if start_time is not None and getattr(start_time, "tzinfo", None) is None:
-        start_time = start_time.replace(tzinfo=timezone.utc).astimezone()
+        # FIT timestamps are UTC. Keep them as UTC so every activity shares one
+        # representation regardless of source; the CLI converts to local only
+        # for display.
+        start_time = start_time.replace(tzinfo=timezone.utc)
 
     normalized = {
         "sport": session_record.get("sport", "cycling"),
