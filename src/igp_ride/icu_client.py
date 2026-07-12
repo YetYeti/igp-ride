@@ -25,6 +25,14 @@ class ICUActivitySummary:
     start_date_local: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class ICUActivityMessage:
+    id: int
+    content: str = ""
+    created: str = ""
+    athlete_id: str = ""
+
+
 class IntervalsIcuClient:
     def __init__(
         self,
@@ -115,6 +123,19 @@ class IntervalsIcuClient:
         )
         _raise_for_status(response)
 
+    def list_activity_messages(self, activity_id: str) -> list[ICUActivityMessage]:
+        response = self._session.get(
+            f"{INTERVALS_ICU_API_BASE_URL}/activity/{activity_id}/messages",
+            timeout=self.timeout,
+        )
+        payload = _decode_json_response(response)
+        if not isinstance(payload, list):
+            raise ICUClientError("Intervals.icu returned an unexpected message list.")
+        return [
+            _parse_activity_message(item) for item in payload if isinstance(item, dict)
+        ]
+
+
 def _decode_json_response(response: requests.Response) -> object:
     _raise_for_status(response)
     try:
@@ -142,6 +163,16 @@ def _parse_activity_summary(payload: dict[str, Any]) -> ICUActivitySummary:
         source=_string_value(payload.get("source")),
         activity_type=_string_value(payload.get("type")),
         start_date_local=_string_value(payload.get("start_date_local")),
+    )
+
+
+def _parse_activity_message(payload: dict[str, Any]) -> ICUActivityMessage:
+    message_id = payload.get("id")
+    return ICUActivityMessage(
+        id=message_id if isinstance(message_id, int) else 0,
+        content=_string_value(payload.get("content")),
+        created=_string_value(payload.get("created")),
+        athlete_id=_string_value(payload.get("athlete_id")),
     )
 
 

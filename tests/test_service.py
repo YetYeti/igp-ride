@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from igp_ride.client import AuthenticationError
+from igp_ride.icu_client import ICUActivityMessage
 from igp_ride.models import Activity, ActivityNote
 from igp_ride.parser import FitParseError
 from igp_ride.service import (
@@ -20,6 +21,7 @@ from igp_ride.service import (
     _calculate_fetch_limits,
     _parse_start_time,
     build_icu_external_id,
+    hash_activity_note,
 )
 
 
@@ -424,6 +426,116 @@ class TestIcuSync:
         now = datetime.now(UTC).isoformat()
         page_size = _calculate_fetch_limits(now)
         assert page_size == 20
+
+    def test_icu_sync_imports_remote_note_when_local_note_missing(self, tmp_path: Path):
+        config = _icu_config(tmp_path)
+        activity = _activity(
+            1,
+            tmp_path / "fit" / "1.fit",
+            icu_activity_id="icu-1",
+            icu_external_id="igp-1",
+            icu_sync_status="synced",
+        )
+        remote_note = ICUActivityMessage(id=10, content="Remote note")
+
+        with (
+            patch("igp_ride.service.IGPSportClient"),
+            patch("igp_ride.service.ActivityDatabase") as MockDB,
+            patch("igp_ride.service.IntervalsIcuClient") as MockIcuClient,
+        ):
+            mock_db = MockDB.return_value
+            mock_db.get_activities_pending_icu_sync.return_value = []
+            mock_db.get_activities_pending_icu_note_sync.return_value = []
+            mock_db.get_activities_for_icu_note_reconciliation.return_value = [activity]
+            mock_db.get_activity_note.return_value = None
+            mock_icu = MockIcuClient.return_value
+            mock_icu.list_activities.return_value = []
+            mock_icu.list_activity_messages.return_value = [remote_note]
+
+            service = RideSyncService(config)
+            summary = service.sync_icu()
+
+        assert summary.notes_imported == 1
+        assert summary.notes_synced == 0
+        mock_db.save_activity_note_from_icu.assert_called_once()
+        assert mock_db.save_activity_note_from_icu.call_args.args[:2] == (
+            1,
+            "Remote note",
+        )
+        mock_icu.add_activity_message.assert_not_called()
+
+    def test_icu_sync_rejects_local_note_when_remote_note_exists(self, tmp_path: Path):
+        config = _icu_config(tmp_path)
+        activity = _activity(
+            1,
+            tmp_path / "fit" / "1.fit",
+            icu_activity_id="icu-1",
+            icu_external_id="igp-1",
+            icu_sync_status="synced",
+        )
+        note = _activity_note(1, note="Local note")
+        remote_note = ICUActivityMessage(id=10, content="Remote note")
+
+        with (
+            patch("igp_ride.service.IGPSportClient"),
+            patch("igp_ride.service.ActivityDatabase") as MockDB,
+            patch("igp_ride.service.IntervalsIcuClient") as MockIcuClient,
+        ):
+            mock_db = MockDB.return_value
+            mock_db.get_activities_pending_icu_sync.return_value = []
+            mock_db.get_activities_pending_icu_note_sync.return_value = [activity]
+            mock_db.get_activities_for_icu_note_reconciliation.return_value = []
+            mock_db.get_activity_note.return_value = note
+            mock_icu = MockIcuClient.return_value
+            mock_icu.list_activities.return_value = []
+            mock_icu.list_activity_messages.return_value = [remote_note]
+
+            service = RideSyncService(config)
+            summary = service.sync_icu()
+
+        assert summary.notes_conflicted == 1
+        assert summary.notes_failed == 1
+        mock_db.mark_activity_note_icu_sync_failed.assert_called_once()
+        assert (
+            "already has a note"
+            in mock_db.mark_activity_note_icu_sync_failed.call_args.kwargs["error"]
+        )
+        mock_icu.add_activity_message.assert_not_called()
+
+    def test_icu_sync_marks_same_remote_note_synced(self, tmp_path: Path):
+        config = _icu_config(tmp_path)
+        activity = _activity(
+            1,
+            tmp_path / "fit" / "1.fit",
+            icu_activity_id="icu-1",
+            icu_external_id="igp-1",
+            icu_sync_status="synced",
+        )
+        note = _activity_note(1, note="Same note")
+        note.note_hash = hash_activity_note("Same note")
+        remote_note = ICUActivityMessage(id=10, content="Same note")
+
+        with (
+            patch("igp_ride.service.IGPSportClient"),
+            patch("igp_ride.service.ActivityDatabase") as MockDB,
+            patch("igp_ride.service.IntervalsIcuClient") as MockIcuClient,
+        ):
+            mock_db = MockDB.return_value
+            mock_db.get_activities_pending_icu_sync.return_value = []
+            mock_db.get_activities_pending_icu_note_sync.return_value = [activity]
+            mock_db.get_activities_for_icu_note_reconciliation.return_value = []
+            mock_db.get_activity_note.return_value = note
+            mock_icu = MockIcuClient.return_value
+            mock_icu.list_activities.return_value = []
+            mock_icu.list_activity_messages.return_value = [remote_note]
+
+            service = RideSyncService(config)
+            summary = service.sync_icu()
+
+        assert summary.notes_failed == 0
+        assert summary.notes_conflicted == 0
+        mock_db.mark_activity_note_icu_synced.assert_called_once()
+        mock_icu.add_activity_message.assert_not_called()
 
 
 class TestSyncModes:

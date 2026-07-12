@@ -124,6 +124,34 @@ class TestIntervalsIcuClient:
         )
         client.close()
 
+    def test_list_activity_messages_normalizes_content(self):
+        client = IntervalsIcuClient(api_key="secret")
+        response = _response(
+            [
+                {
+                    "id": 42,
+                    "content": "Legs felt good.",
+                    "created": "2026-06-14T10:00:00Z",
+                    "athlete_id": "i123",
+                },
+                {"id": "bad", "content": 123},
+            ]
+        )
+
+        with patch.object(client._session, "get", return_value=response) as get:
+            messages = client.list_activity_messages("i999")
+
+        get.assert_called_once_with(
+            f"{INTERVALS_ICU_API_BASE_URL}/activity/i999/messages",
+            timeout=30,
+        )
+        assert messages[0].id == 42
+        assert messages[0].content == "Legs felt good."
+        assert messages[0].created == "2026-06-14T10:00:00Z"
+        assert messages[1].id == 0
+        assert messages[1].content == ""
+        client.close()
+
     def test_raises_clear_error_for_unauthorized_response(self):
         client = IntervalsIcuClient(api_key="bad")
 

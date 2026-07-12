@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from getpass import getpass
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, Callable
 
@@ -16,7 +17,12 @@ from igp_ride.config import (
     save_credentials,
 )
 from igp_ride.database import ActivityDatabase, ActivitySortKey
-from igp_ride.icu_client import ICUActivitySummary, ICUClientError, IntervalsIcuClient
+from igp_ride.icu_client import (
+    ICUActivityMessage,
+    ICUActivitySummary,
+    ICUClientError,
+    IntervalsIcuClient,
+)
 from igp_ride.models import Activity, ActivityNote, SyncSummary
 from igp_ride.parser import FitParseError, normalize_session_data, parse_fit_file
 from igp_ride.utils import get_logger
@@ -63,6 +69,8 @@ class IcuSyncSummary:
     failed: int = 0
     notes_synced: int = 0
     notes_failed: int = 0
+    notes_imported: int = 0
+    notes_conflicted: int = 0
     dry_run: bool = False
 
 
@@ -76,6 +84,8 @@ class IcuSyncProgress:
     failed: int = 0
     notes_synced: int = 0
     notes_failed: int = 0
+    notes_imported: int = 0
+    notes_conflicted: int = 0
     current_ride_id: int | None = None
 
 
@@ -484,8 +494,12 @@ class RideSyncService:
                 include_failed=include_failed,
             )
         )
+        note_reconciliation = list(
+            self.db.get_activities_for_icu_note_reconciliation(since=since)
+        )
         pending_by_ride_id = {
-            activity.ride_id: activity for activity in pending_uploads + pending_notes
+            activity.ride_id: activity
+            for activity in pending_uploads + pending_notes + note_reconciliation
         }
         pending = sorted(
             pending_by_ride_id.values(),
@@ -496,6 +510,7 @@ class RideSyncService:
         )
         pending_upload_ids = {activity.ride_id for activity in pending_uploads}
         pending_note_ids = {activity.ride_id for activity in pending_notes}
+        note_reconciliation_ids = {activity.ride_id for activity in note_reconciliation}
 
         summary = IcuSyncSummary(candidates=len(pending), dry_run=dry_run)
         if not pending:
@@ -517,6 +532,7 @@ class RideSyncService:
                     index=index,
                     pending_upload_ids=pending_upload_ids,
                     pending_note_ids=pending_note_ids,
+                    note_reconciliation_ids=note_reconciliation_ids,
                     remote_by_external_id=remote_by_external_id,
                     icu_client=icu_client,
                     dry_run=dry_run,
@@ -535,6 +551,7 @@ class RideSyncService:
         index: int,
         pending_upload_ids: set[int],
         pending_note_ids: set[int],
+        note_reconciliation_ids: set[int],
         remote_by_external_id: dict[str, ICUActivitySummary],
         icu_client: IntervalsIcuClient,
         dry_run: bool,
@@ -550,6 +567,7 @@ class RideSyncService:
         external_id = build_icu_external_id(activity.ride_id)
         needs_upload = activity.ride_id in pending_upload_ids
         needs_note = activity.ride_id in pending_note_ids
+        needs_note_reconciliation = activity.ride_id in note_reconciliation_ids
         remote = remote_by_external_id.get(external_id)
         icu_activity_id = activity.icu_activity_id
 
@@ -614,9 +632,52 @@ class RideSyncService:
             )
             summary.uploaded += 1
 
-        if needs_note:
+        if needs_note or needs_note_reconciliation:
             note = self.db.get_activity_note(activity.ride_id)
-            if note is not None and note.note_hash != note.icu_note_synced_hash:
+            remote_note = None
+            if icu_activity_id and not dry_run:
+                try:
+                    remote_note = self._load_latest_activity_note(
+                        icu_client, icu_activity_id
+                    )
+                except ICUClientError as exc:
+                    if needs_note:
+                        self.db.mark_activity_note_icu_sync_failed(
+                            activity.ride_id, error=str(exc)
+                        )
+                        summary.notes_failed += 1
+
+            if remote_note is not None:
+                remote_hash = hash_activity_note(remote_note.content)
+                if note is None:
+                    self.db.save_activity_note_from_icu(
+                        activity.ride_id,
+                        remote_note.content,
+                        synced_at=datetime.now(UTC),
+                    )
+                    summary.notes_imported += 1
+                    note = None
+                elif note.note_hash == remote_hash:
+                    self.db.mark_activity_note_icu_synced(
+                        activity.ride_id,
+                        note_hash=note.note_hash,
+                        synced_at=datetime.now(UTC),
+                    )
+                    note = None
+                elif note.note_hash == note.icu_note_synced_hash:
+                    self.db.save_activity_note_from_icu(
+                        activity.ride_id,
+                        remote_note.content,
+                        synced_at=datetime.now(UTC),
+                    )
+                    summary.notes_imported += 1
+                    note = None
+
+            if (
+                needs_note
+                and note is not None
+                and note.note_hash != note.icu_note_synced_hash
+            ):
                 if not icu_activity_id:
                     if dry_run:
                         summary.skipped += 1
@@ -626,6 +687,17 @@ class RideSyncService:
                             error="Intervals.icu activity id is not available.",
                         )
                         summary.notes_failed += 1
+                elif remote_note is not None:
+                    self.db.mark_activity_note_icu_sync_failed(
+                        activity.ride_id,
+                        error=(
+                            "Intervals.icu activity already has a note. "
+                            "Clear or resolve the existing note before "
+                            "syncing a different local note."
+                        ),
+                    )
+                    summary.notes_conflicted += 1
+                    summary.notes_failed += 1
                 elif dry_run:
                     summary.skipped += 1
                 else:
@@ -678,6 +750,20 @@ class RideSyncService:
             synced_at=datetime.now(UTC),
         )
         summary.notes_synced += 1
+
+    def _load_latest_activity_note(
+        self,
+        icu_client: IntervalsIcuClient,
+        activity_id: str,
+    ) -> ICUActivityMessage | None:
+        messages = [
+            message
+            for message in icu_client.list_activity_messages(activity_id)
+            if message.content.strip()
+        ]
+        if not messages:
+            return None
+        return max(messages, key=lambda message: (message.id, message.created))
 
     def set_activity_note(self, ride_id: int, note: str) -> ActivityNote:
         return self.db.set_activity_note(ride_id, note)
@@ -976,6 +1062,10 @@ def build_icu_external_id(ride_id: int) -> str:
     return f"igp-{ride_id}"
 
 
+def hash_activity_note(note: str) -> str:
+    return sha256(note.strip().encode("utf-8")).hexdigest()
+
+
 def _icu_sync_progress_from_summary(
     summary: IcuSyncSummary,
     *,
@@ -991,6 +1081,8 @@ def _icu_sync_progress_from_summary(
         failed=summary.failed,
         notes_synced=summary.notes_synced,
         notes_failed=summary.notes_failed,
+        notes_imported=summary.notes_imported,
+        notes_conflicted=summary.notes_conflicted,
         current_ride_id=current_ride_id,
     )
 

@@ -627,7 +627,8 @@ class TestIcuOutput:
         assert "Force: no" in captured.out
         assert (
             "Summary: candidates=3 uploaded=2 already_remote=1 skipped=0 "
-            "failed=0 notes_synced=0 notes_failed=0 dry_run=no"
+            "failed=0 notes_synced=0 notes_failed=0 notes_imported=0 "
+            "notes_conflicted=0 dry_run=no"
         ) in captured.out
         assert "Progress: done=0 total=3 percent=0" in captured.err
         assert "Progress: done=1 total=3 percent=33" in captured.err

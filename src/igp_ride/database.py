@@ -248,6 +248,58 @@ class ActivityDatabase:
         self._get_connection().commit()
         return cursor.rowcount > 0
 
+    def save_activity_note_from_icu(
+        self,
+        ride_id: int,
+        note: str,
+        *,
+        synced_at: datetime,
+    ) -> ActivityNote:
+        normalized_note = note.strip()
+        if not normalized_note:
+            raise DatabaseError("Activity note cannot be empty.")
+        if self.get_by_ride_id(ride_id) is None:
+            raise DatabaseError(f"Activity not found: {ride_id}")
+
+        note_hash = _hash_note(normalized_note)
+        cursor = self._get_connection().cursor()
+        cursor.execute(
+            """
+            INSERT INTO activity_notes (
+                ride_id,
+                note,
+                note_hash,
+                note_updated_at,
+                icu_note_synced_hash,
+                icu_note_synced_at,
+                icu_note_sync_status,
+                icu_note_sync_error
+            )
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?, ?, 'synced', '')
+            ON CONFLICT(ride_id) DO UPDATE SET
+                note = excluded.note,
+                note_hash = excluded.note_hash,
+                note_updated_at = CURRENT_TIMESTAMP,
+                icu_note_synced_hash = excluded.icu_note_synced_hash,
+                icu_note_synced_at = excluded.icu_note_synced_at,
+                icu_note_sync_status = 'synced',
+                icu_note_sync_error = '',
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                ride_id,
+                normalized_note,
+                note_hash,
+                note_hash,
+                _to_iso(synced_at),
+            ),
+        )
+        self._get_connection().commit()
+        note_record = self.get_activity_note(ride_id)
+        if note_record is None:
+            raise DatabaseError(f"Activity note was not saved: {ride_id}")
+        return note_record
+
     def get_activities_pending_icu_note_sync(
         self,
         *,
@@ -269,6 +321,27 @@ class ActivityDatabase:
             query += " AND date(activities.start_time) >= ?"
             params.append(since.isoformat())
         query += " ORDER BY activities.start_time ASC, activities.ride_id ASC"
+
+        cursor = self._get_connection().cursor()
+        cursor.execute(query, tuple(params))
+        return [self._row_to_activity(row) for row in cursor.fetchall()]
+
+    def get_activities_for_icu_note_reconciliation(
+        self,
+        *,
+        since: date | None = None,
+    ) -> list[Activity]:
+        query = """
+            SELECT * FROM activities
+            WHERE fit_file_status = 'downloaded'
+              AND icu_sync_status = 'synced'
+              AND (icu_activity_id != '' OR icu_external_id != '')
+        """
+        params: list[object] = []
+        if since is not None:
+            query += " AND date(start_time) >= ?"
+            params.append(since.isoformat())
+        query += " ORDER BY start_time ASC, ride_id ASC"
 
         cursor = self._get_connection().cursor()
         cursor.execute(query, tuple(params))

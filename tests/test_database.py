@@ -274,3 +274,36 @@ class TestActivityDatabase:
         assert note_1.note_hash
         assert [activity.ride_id for activity in pending] == [1, 3]
         db.close()
+
+    def test_save_activity_note_from_icu_marks_note_synced(self, tmp_path: Path):
+        db = ActivityDatabase(tmp_path / "test.db")
+        db.upsert(_make_activity(ride_id=1))
+
+        note = db.save_activity_note_from_icu(
+            1,
+            "Remote note",
+            synced_at=datetime(2026, 6, 14, 10, 0, 0),
+        )
+
+        assert note.note == "Remote note"
+        assert note.note_hash == note.icu_note_synced_hash
+        assert note.icu_note_sync_status == "synced"
+        assert note.icu_note_sync_error == ""
+        db.close()
+
+    def test_get_activities_for_icu_note_reconciliation(self, tmp_path: Path):
+        db = ActivityDatabase(tmp_path / "test.db")
+        db.upsert(_make_activity(ride_id=1, fit_file_status="downloaded"))
+        db.upsert(_make_activity(ride_id=2, fit_file_status="missing"))
+        db.upsert(_make_activity(ride_id=3, fit_file_status="downloaded"))
+        db.mark_icu_synced(
+            1,
+            icu_activity_id="icu-1",
+            icu_external_id="igp-1",
+            synced_at=datetime(2026, 6, 14, 10, 0, 0),
+        )
+
+        activities = db.get_activities_for_icu_note_reconciliation()
+
+        assert [activity.ride_id for activity in activities] == [1]
+        db.close()

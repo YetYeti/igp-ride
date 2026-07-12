@@ -721,6 +721,7 @@ def cmd_icu_sync(dry_run: bool, *, force: bool = False) -> int:
                 f" | uploaded {p.uploaded}"
                 f" | remote {p.already_remote}"
                 f" | notes {p.notes_synced}"
+                f" | imported {p.notes_imported}"
                 f" | skipped {p.skipped}"
                 f" | failed {p.failed} ",
                 end="",
@@ -1416,6 +1417,8 @@ def _print_icu_sync_summary(summary: IcuSyncSummary) -> None:
             ("failed", summary.failed),
             ("notes_synced", summary.notes_synced),
             ("notes_failed", summary.notes_failed),
+            ("notes_imported", summary.notes_imported),
+            ("notes_conflicted", summary.notes_conflicted),
             ("dry_run", summary.dry_run),
         ]
     )
@@ -1430,6 +1433,8 @@ def _icu_sync_summary_payload(summary: IcuSyncSummary) -> dict[str, int | bool]:
         "failed": summary.failed,
         "notes_synced": summary.notes_synced,
         "notes_failed": summary.notes_failed,
+        "notes_imported": summary.notes_imported,
+        "notes_conflicted": summary.notes_conflicted,
         "dry_run": summary.dry_run,
     }
 
