@@ -31,7 +31,7 @@ from igp_ride.service import (
     RideSyncService,
     SyncProgress,
 )
-from igp_ride.utils import setup_logging
+from igp_ride.utils import format_distance, setup_logging
 
 _title_printed = False
 _output_format = "text"
@@ -327,7 +327,7 @@ def cmd_welcome() -> int:
 
 def cmd_login(username: str | None = None, password_stdin: bool = False) -> int:
     config = AppConfig.load()
-    password = _read_secret_stdin("IGPSPORT password") if password_stdin else None
+    password = _read_required_stdin("IGPSPORT password") if password_stdin else None
     username_changed = bool(
         username and config.username and username != config.username
     )
@@ -581,7 +581,7 @@ def cmd_icu(args: argparse.Namespace) -> int:
 
 def cmd_icu_login(api_key_stdin: bool = False) -> int:
     if api_key_stdin:
-        final_api_key = _read_secret_stdin("Intervals.icu API key")
+        final_api_key = _read_required_stdin("Intervals.icu API key")
     elif _input_disabled():
         final_api_key = AppConfig.load().icu_api_key
         if not final_api_key:
@@ -835,7 +835,7 @@ def cmd_list(
     for activity in activities:
         start = _format_activity_date(activity.start_time)
         title = format_activity_name(activity.title)
-        distance = f"{activity.total_distance / 1000:.1f} km"
+        distance = format_distance(activity.total_distance)
         avg_speed = (
             f"{to_kmh(activity.avg_speed):.1f} km/h" if activity.avg_speed > 0 else "-"
         )
@@ -952,7 +952,7 @@ def cmd_show(activity_id: str) -> int:
 
 def cmd_note(args: argparse.Namespace) -> int:
     if args.note_command == "set":
-        note = _read_text_stdin("Activity note") if args.stdin else args.text
+        note = _read_required_stdin("Activity note") if args.stdin else args.text
         return cmd_note_set(args.activity_id, note)
     if args.note_command == "show":
         return cmd_note_show(args.activity_id)
@@ -1210,14 +1210,7 @@ def _input_disabled() -> bool:
     return _no_input or _json_output()
 
 
-def _read_secret_stdin(label: str) -> str:
-    value = sys.stdin.read().strip()
-    if not value:
-        raise ConfigurationError(f"{label} is required on stdin.")
-    return value
-
-
-def _read_text_stdin(label: str) -> str:
+def _read_required_stdin(label: str) -> str:
     value = sys.stdin.read().strip()
     if not value:
         raise ConfigurationError(f"{label} is required on stdin.")
