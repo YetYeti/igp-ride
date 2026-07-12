@@ -119,9 +119,8 @@ class TestSyncProgress:
 
 class TestCalculateFetchLimits:
     def test_full_sync_when_no_last_sync(self):
-        page_size, max_pages = _calculate_fetch_limits(None)
+        page_size = _calculate_fetch_limits(None)
         assert page_size == 200
-        assert max_pages == 1000
 
 
 def _icu_config(tmp_path: Path) -> MagicMock:
@@ -423,9 +422,8 @@ class TestIcuSync:
 
     def test_incremental_uses_fixed_page_size(self):
         now = datetime.now(UTC).isoformat()
-        page_size, max_pages = _calculate_fetch_limits(now)
+        page_size = _calculate_fetch_limits(now)
         assert page_size == 20
-        assert max_pages == 1000
 
 
 class TestSyncModes:
