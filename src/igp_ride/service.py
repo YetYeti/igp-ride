@@ -116,7 +116,7 @@ class RideSyncService:
         try:
             client.download_fit_file(ride_id, fit_path)
             return True
-        except DataSyncError as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to download FIT for ride %d: %s", ride_id, exc)
             return False
         finally:

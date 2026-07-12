@@ -152,6 +152,17 @@ class TestDownloadClient:
             download_client.close()
             service.close()
 
+    def test_download_fit_safe_swallows_non_datasync_errors(self, tmp_path: Path):
+        # Network/auth errors must not escape _download_fit_safe: it is the
+        # concurrency boundary for downloads and must always return a bool.
+        def factory():
+            client = MagicMock()
+            client.download_fit_file.side_effect = ConnectionError("boom")
+            return client
+
+        result = RideSyncService._download_fit_safe(factory, 42, tmp_path / "42.fit")
+        assert result is False
+
 
 class TestIcuSync:
     def test_build_icu_external_id(self):
